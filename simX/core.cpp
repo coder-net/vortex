@@ -134,14 +134,17 @@ void Core::schedule() {
 }
 
 void Core::fetch() {
-  if (!inst_in_fetch_.enter(&inst_in_issue_))
+  if (!inst_in_fetch_.enter(&inst_in_decode_))
     return;
 
+
+  inst_in_fetch_.fetched = this->icache_fetch(warp(inst_in_fetch_.wid).getPC());
+  inst_in_fetch_.instr = decoder().decode(inst_in_fetch_.fetched);
+
   int wid = inst_in_fetch_.wid;
-  
-  auto active_threads_b = warps_[wid]->getActiveThreads();    
+  auto active_threads_b = warps_[wid]->getActiveThreads();
   warps_[wid]->step(&inst_in_fetch_);
-  auto active_threads_a = warps_[wid]->getActiveThreads();   
+  auto active_threads_a = warps_[wid]->getActiveThreads();
 
   insts_ += active_threads_b;
   if (active_threads_b != active_threads_a) {
@@ -152,17 +155,35 @@ void Core::fetch() {
     D(3, "** warp #" << wid << " stalled");
     stalled_warps_[wid] = true;
   }
-  
+
   D(4, inst_in_fetch_);
 
+
   // advance pipeline
-  inst_in_fetch_.next(&inst_in_issue_);
+  inst_in_fetch_.next(&inst_in_decode_);
 }
 
 void Core::decode() {
   if (!inst_in_decode_.enter(&inst_in_issue_))
     return;
-  
+
+//  inst_in_decode_.instr = decoder().decode(inst_in_decode_.fetched);
+//
+//  const auto wid = inst_in_decode_.wid;
+//  auto active_threads_b = warp(wid).getActiveThreads();
+//  warp(wid).step(&inst_in_decode_);
+//  auto active_threads_a = warp(wid).getActiveThreads();
+//
+//  insts_ += active_threads_b;
+//  if (active_threads_b != active_threads_a) {
+//    D(3, "** warp #" << wid << " active threads changed from " << active_threads_b << " to " << active_threads_a);
+//  }
+//
+//  if (inst_in_decode_.stall_warp) {
+//    D(3, "** warp #" << wid << " stalled");
+//    stalled_warps_[wid] = true;
+//  }
+
   // advance pipeline
   inst_in_decode_.next(&inst_in_issue_);
 }
@@ -170,6 +191,8 @@ void Core::decode() {
 void Core::issue() {
   if (!inst_in_issue_.enter(&inst_in_execute_))
     return;
+
+//  warp(inst_in_issue_.wid).read(&inst_in_issue_);
 
   bool in_use_regs = (inst_in_issue_.used_iregs & in_use_iregs_[inst_in_issue_.wid]) != 0 
                   || (inst_in_issue_.used_fregs & in_use_fregs_[inst_in_issue_.wid]) != 0 
@@ -204,6 +227,23 @@ void Core::execute() {
   if (!inst_in_execute_.enter(&inst_in_writeback_))
     return;
 
+//  const auto wid = inst_in_execute_.wid;
+//  auto active_threads_b = warp(wid).getActiveThreads();
+//  warp(wid).step(&inst_in_execute_);
+//  auto active_threads_a = warp(wid).getActiveThreads();
+//
+//  insts_ += active_threads_b;
+//  if (active_threads_b != active_threads_a) {
+//    D(3, "** warp #" << wid << " active threads changed from " << active_threads_b << " to " << active_threads_a);
+//  }
+//
+//  if (inst_in_execute_.stall_warp) {
+//    D(3, "** warp #" << wid << " stalled");
+//    stalled_warps_[wid] = true;
+//  }
+//
+//  D(4, inst_in_execute_);
+
   // advance pipeline
   inst_in_execute_.next(&inst_in_writeback_);
 }
@@ -211,6 +251,8 @@ void Core::execute() {
 void Core::writeback() {
   if (!inst_in_writeback_.enter(NULL))
     return;
+
+//  warp(inst_in_writeback_.wid).writeback(&inst_in_writeback_);
 
   switch (inst_in_writeback_.rdest_type) {
   case 1:

@@ -88,7 +88,7 @@ public:
 
 private:
 
-  void execute(Instr &instr, Pipeline *); // now instruction has intermediate source and dest registers
+  void executing(Pipeline *); // now instruction has intermediate source and dest registers
   
   Word id_;
   bool active_;
