@@ -75,7 +75,7 @@ private:
   void schedule();
   void fetch();
   void decode();
-  void issue();
+  void read();
   void execute();
   void writeback();
   
@@ -84,7 +84,7 @@ private:
   std::vector<RegMask> in_use_fregs_;
   RegMask in_use_vregs_;
   WarpMask stalled_warps_;
-  WarpMask to_execute_warps_;
+  WarpMask executing_queue_warps_;
   std::vector<std::shared_ptr<Warp>> warps_;  
   std::vector<WarpMask> barriers_;  
   std::vector<Word> csrs_;
@@ -101,7 +101,7 @@ private:
   Pipeline inst_in_schedule_;
   Pipeline inst_in_fetch_;
   Pipeline inst_in_decode_;
-  Pipeline inst_in_issue_;
+  Pipeline inst_in_read_;
   Pipeline inst_in_execute_;
   Pipeline inst_in_writeback_;
 

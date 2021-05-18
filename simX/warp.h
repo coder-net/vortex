@@ -81,9 +81,8 @@ public:
 
   int getNumThreads() const;
 
-  void step(Pipeline *);
+  void execute(Pipeline *);
   void read(Pipeline *) const;
-
   void writeback(Pipeline *);
 
 private:

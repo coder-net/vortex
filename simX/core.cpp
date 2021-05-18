@@ -21,7 +21,7 @@ Core::Core(const ArchDef &arch, Decoder &decoder, MemoryUnit &mem, Word id)
     , inst_in_schedule_("schedule")
     , inst_in_fetch_("fetch")
     , inst_in_decode_("decode")
-    , inst_in_issue_("issue")
+    , inst_in_read_("read")
     , inst_in_execute_("execute")
     , inst_in_writeback_("writeback") {
   in_use_iregs_.resize(arch.num_warps(), 0);
@@ -70,7 +70,7 @@ void Core::clear() {
   inst_in_schedule_.clear();
   inst_in_fetch_.clear();
   inst_in_decode_.clear();
-  inst_in_issue_.clear();
+  inst_in_read_.clear();
   inst_in_execute_.clear();
   inst_in_writeback_.clear();
 
@@ -97,7 +97,7 @@ void Core::step() {
 
   this->writeback();
   this->execute();
-  this->issue(); // read
+  this->read();
   this->decode();
   this->fetch();
   this->schedule();
@@ -117,9 +117,9 @@ void Core::schedule() {
     scheduled_warp = (scheduled_warp + 1) % warps_.size();
     bool is_active = warps_[scheduled_warp]->active();
     bool stalled = stalled_warps_[scheduled_warp];
-    bool in_queue = to_execute_warps_[scheduled_warp];
+    bool in_queue = executing_queue_warps_[scheduled_warp];
     if (is_active && !stalled && !in_queue) {
-      to_execute_warps_[scheduled_warp] = 1;
+      executing_queue_warps_[scheduled_warp] = 1;
       foundSchedule = true;
       break;
     }
@@ -132,11 +132,7 @@ void Core::schedule() {
   D(3, "Schedule: wid=" << scheduled_warp);
   inst_in_schedule_.wid = scheduled_warp;
 
-  if (scheduled_warp == inst_in_decode_.wid) {
-    D(3, "ERROR: The same warps in schedule and execute");
-  }
-
-  // advance pipeline
+  // copy to next
   inst_in_schedule_.next(&inst_in_fetch_);
 }
 
@@ -144,118 +140,81 @@ void Core::fetch() {
   if (!inst_in_fetch_.enter(&inst_in_decode_))
     return;
 
-
   inst_in_fetch_.fetched = this->icache_fetch(warp(inst_in_fetch_.wid).getPC());
-//  inst_in_fetch_.instr = decoder().decode(inst_in_fetch_.fetched);
-//
-//  int wid = inst_in_fetch_.wid;
-//  auto active_threads_b = warps_[wid]->getActiveThreads();
-//  warps_[wid]->step(&inst_in_fetch_);
-//  auto active_threads_a = warps_[wid]->getActiveThreads();
-//
-//  insts_ += active_threads_b;
-//  if (active_threads_b != active_threads_a) {
-//    D(3, "** warp #" << wid << " active threads changed from " << active_threads_b << " to " << active_threads_a);
-//  }
-//
-//  if (inst_in_fetch_.stall_warp) {
-//    D(3, "** warp #" << wid << " stalled");
-//    stalled_warps_[wid] = true;
-//  }
-//
-//  D(4, inst_in_fetch_);
 
-
-  // advance pipeline
+  // copy to next
   inst_in_fetch_.next(&inst_in_decode_);
 }
 
 void Core::decode() {
-  if (!inst_in_decode_.enter(&inst_in_issue_))
+  if (!inst_in_decode_.enter(&inst_in_read_))
     return;
 
   inst_in_decode_.instr = decoder().decode(inst_in_decode_.fetched);
 
-  const auto wid = inst_in_decode_.wid;
-  auto active_threads_b = warp(wid).getActiveThreads();
-  warp(wid).step(&inst_in_decode_);
-  auto active_threads_a = warp(wid).getActiveThreads();
-
-  to_execute_warps_[wid] = 0;
-
-  insts_ += active_threads_b;
-  if (active_threads_b != active_threads_a) {
-    D(3, "** warp #" << wid << " active threads changed from " << active_threads_b << " to " << active_threads_a);
-  }
-
-  if (inst_in_decode_.stall_warp) {
-    D(3, "** warp #" << wid << " stalled");
-    stalled_warps_[wid] = true;
-  }
-
-//  D(4, inst_in_decode_);
-
-  // advance pipeline
-  inst_in_decode_.next(&inst_in_issue_);
+  // copy to next
+  inst_in_decode_.next(&inst_in_read_);
 }
 
-void Core::issue() {
-  if (!inst_in_issue_.enter(&inst_in_execute_))
+void Core::read() {
+  if (!inst_in_read_.enter(&inst_in_execute_))
     return;
 
-//  warp(inst_in_issue_.wid).read(&inst_in_issue_);
+  warp(inst_in_read_.wid).read(&inst_in_read_);
 
-  bool in_use_regs = (inst_in_issue_.used_iregs & in_use_iregs_[inst_in_issue_.wid]) != 0 
-                  || (inst_in_issue_.used_fregs & in_use_fregs_[inst_in_issue_.wid]) != 0 
-                  || (inst_in_issue_.used_vregs & in_use_vregs_) != 0;
+  bool in_use_regs = (inst_in_read_.used_iregs & in_use_iregs_[inst_in_read_.wid]) != 0 
+                  || (inst_in_read_.used_fregs & in_use_fregs_[inst_in_read_.wid]) != 0 
+                  || (inst_in_read_.used_vregs & in_use_vregs_) != 0;
   
   if (in_use_regs) {      
-    D(3, "Issue: registers not ready!");
-    inst_in_issue_.stalled = true;
+    D(3, "Read: registers not ready!");
+    inst_in_read_.stalled = true;
     return;
   } 
 
-  switch (inst_in_issue_.rdest_type) {
+  switch (inst_in_read_.rdest_type) {
   case 1:
-    if (inst_in_issue_.rdest)
-      in_use_iregs_[inst_in_issue_.wid][inst_in_issue_.rdest] = 1;
+    if (inst_in_read_.rdest)
+      in_use_iregs_[inst_in_read_.wid][inst_in_read_.rdest] = 1;
     break;
   case 2:
-    in_use_fregs_[inst_in_issue_.wid][inst_in_issue_.rdest] = 1;
+    in_use_fregs_[inst_in_read_.wid][inst_in_read_.rdest] = 1;
     break;
   case 3:
-    in_use_vregs_[inst_in_issue_.rdest] = 1;
+    in_use_vregs_[inst_in_read_.rdest] = 1;
     break;
   default:  
     break;
   }
 
-  // advance pipeline
-  inst_in_issue_.next(&inst_in_execute_);
+  // copy to next
+  inst_in_read_.next(&inst_in_execute_);
 }
 
 void Core::execute() {  
   if (!inst_in_execute_.enter(&inst_in_writeback_))
     return;
 
-//  const auto wid = inst_in_execute_.wid;
-//  auto active_threads_b = warp(wid).getActiveThreads();
-//  warp(wid).step(&inst_in_execute_);
-//  auto active_threads_a = warp(wid).getActiveThreads();
-//
-//  insts_ += active_threads_b;
-//  if (active_threads_b != active_threads_a) {
-//    D(3, "** warp #" << wid << " active threads changed from " << active_threads_b << " to " << active_threads_a);
-//  }
-//
-//  if (inst_in_execute_.stall_warp) {
-//    D(3, "** warp #" << wid << " stalled");
-//    stalled_warps_[wid] = true;
-//  }
-//
-//  D(4, inst_in_execute_);
+  const auto wid = inst_in_execute_.wid;
+  auto active_threads_b = warp(wid).getActiveThreads();
+  warp(wid).execute(&inst_in_execute_);
+  auto active_threads_a = warp(wid).getActiveThreads();
 
-  // advance pipeline
+  executing_queue_warps_[wid] = 0;
+
+  insts_ += active_threads_b;
+  if (active_threads_b != active_threads_a) {
+    D(3, "** warp #" << wid << " active threads changed from " << active_threads_b << " to " << active_threads_a);
+  }
+
+  if (inst_in_execute_.stall_warp) {
+    D(3, "** warp #" << wid << " stalled");
+    stalled_warps_[wid] = true;
+  }
+
+  D(4, inst_in_execute_);
+
+  // copy to next
   inst_in_execute_.next(&inst_in_writeback_);
 }
 
@@ -263,7 +222,7 @@ void Core::writeback() {
   if (!inst_in_writeback_.enter(NULL))
     return;
 
-//  warp(inst_in_writeback_.wid).writeback(&inst_in_writeback_);
+  warp(inst_in_writeback_.wid).writeback(&inst_in_writeback_);
 
   switch (inst_in_writeback_.rdest_type) {
   case 1:
@@ -283,7 +242,7 @@ void Core::writeback() {
     stalled_warps_[inst_in_writeback_.wid] = 0;
   }
 
-  // advance pipeline
+  // copy to next
   inst_in_writeback_.next(NULL);
 }
 
@@ -399,7 +358,7 @@ void Core::dcache_write(Addr addr, Word data, Size size) {
 bool Core::running() const {
   return inst_in_fetch_.valid 
       || inst_in_decode_.valid 
-      || inst_in_issue_.valid 
+      || inst_in_read_.valid 
       || inst_in_execute_.valid 
       || inst_in_writeback_.valid;
 }

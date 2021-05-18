@@ -32,34 +32,12 @@ int Warp::getNumThreads() const {
   return core_->arch().num_threads();
 }
 
-void Warp::step(Pipeline *pipeline) {
-  if (!tmask_.any()) {
-    D(3, "Ward " << id_ << " is active: " << active_ << std::endl);
-  }
-  D(3, "Ward " << id_ << " is active: " << active_ << std::endl);
-  std::stringstream ss;
-  ss << "Ward " << id_ << " is active: " << active_ << ", tmask: " << tmask_;
-  D(3, ss.str() << std::flush << std::endl);
-
-  if (!tmask_.any()) {
-    throw std::invalid_argument(ss.str());
-  }
-  assert(tmask_.any() && "Warp::step");
-
-//  Word fetched = core_->icache_fetch(PC_);
-//  auto instr = core_->decoder().decode(fetched);
-//
-//  // Update pipeline
-//  pipeline->instr = instr;
+void Warp::execute(Pipeline *pipeline) {
+  assert(tmask_.any() && "Warp::execute");
 
   D(3, "Step: wid=" << id_ << ", PC=0x" << std::hex << PC_);
 
-  this->read(pipeline);
-  
-  // Execute
   this->executing(pipeline);
-
-  this->writeback(pipeline);
 
   // At Debug Level 3, print debug info after each instruction.
   D(4, "Register state:");
@@ -88,7 +66,7 @@ void Warp::read(Pipeline* pipeline) const {
   pipeline->used_vregs.reset();
 
   if (!pipeline->instr) {
-    DPN(3, "Not instruction for read stage");
+    D(3, "Not instruction for read stage");
     return;
   }
   auto& instr = *pipeline->instr;
