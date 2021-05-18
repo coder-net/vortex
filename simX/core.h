@@ -84,6 +84,7 @@ private:
   std::vector<RegMask> in_use_fregs_;
   RegMask in_use_vregs_;
   WarpMask stalled_warps_;
+  WarpMask to_execute_warps_;
   std::vector<std::shared_ptr<Warp>> warps_;  
   std::vector<WarpMask> barriers_;  
   std::vector<Word> csrs_;

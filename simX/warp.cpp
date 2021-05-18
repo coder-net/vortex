@@ -22,6 +22,7 @@ Warp::Warp(Core *core, Word id)
 }
 
 void Warp::clear() {
+  D(3, "Warp::clear called");
   PC_ = STARTUP_ADDR;
   tmask_.reset();
   active_ = false;
@@ -32,6 +33,17 @@ int Warp::getNumThreads() const {
 }
 
 void Warp::step(Pipeline *pipeline) {
+  if (!tmask_.any()) {
+    D(3, "Ward " << id_ << " is active: " << active_ << std::endl);
+  }
+  D(3, "Ward " << id_ << " is active: " << active_ << std::endl);
+  std::stringstream ss;
+  ss << "Ward " << id_ << " is active: " << active_ << ", tmask: " << tmask_;
+  D(3, ss.str() << std::flush << std::endl);
+
+  if (!tmask_.any()) {
+    throw std::invalid_argument(ss.str());
+  }
   assert(tmask_.any() && "Warp::step");
 
 //  Word fetched = core_->icache_fetch(PC_);

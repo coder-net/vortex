@@ -21,6 +21,7 @@ public:
 
   //--
   bool      valid;
+  bool      stopped;
 
   //--
   bool      stalled;

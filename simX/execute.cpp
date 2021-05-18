@@ -821,10 +821,11 @@ void Warp::executing(Pipeline *pipeline) {
       switch (func3) {
       case 0: {
         // TMC
-        int active_threads = std::min<int>(rsdata[0], num_threads);          
+        int active_threads = std::min<int>(rsdata[0], num_threads);
+        DPN(3, "TMC, active threads: " << active_threads);
         tmask_.reset();
         for (int i = 0; i < active_threads; ++i) {
-          tmask_[i] = true;
+          setTmask(i, true);
         }
         active_ = tmask_.any();
         pipeline->stall_warp = true;
