@@ -9,6 +9,7 @@
 #include "decode.h"
 #include "core.h"
 #include "debug.h"
+#include "instr.h"
 
 using namespace vortex;
 
@@ -162,6 +163,7 @@ void Core::read() {
 
   warp(inst_in_read_.wid).read(&inst_in_read_);
 
+  // Check, if register for writeback will be used
   bool in_use_regs = (inst_in_read_.used_iregs & in_use_iregs_[inst_in_read_.wid]) != 0 
                   || (inst_in_read_.used_fregs & in_use_fregs_[inst_in_read_.wid]) != 0 
                   || (inst_in_read_.used_vregs & in_use_vregs_) != 0;
@@ -172,16 +174,16 @@ void Core::read() {
     return;
   } 
 
-  switch (inst_in_read_.rdest_type) {
-  case 1:
-    if (inst_in_read_.rdest)
-      in_use_iregs_[inst_in_read_.wid][inst_in_read_.rdest] = 1;
+  switch (inst_in_read_.instr->getRDType()) {
+  case RegTypes::INTEGER:
+    if (inst_in_read_.instr->getRDest())
+      in_use_iregs_[inst_in_read_.wid][inst_in_read_.instr->getRDest()] = 1;
     break;
-  case 2:
-    in_use_fregs_[inst_in_read_.wid][inst_in_read_.rdest] = 1;
+  case RegTypes::FLOAT:
+    in_use_fregs_[inst_in_read_.wid][inst_in_read_.instr->getRDest()] = 1;
     break;
-  case 3:
-    in_use_vregs_[inst_in_read_.rdest] = 1;
+  case RegTypes::VECTOR:
+    in_use_vregs_[inst_in_read_.instr->getRDest()] = 1;
     break;
   default:  
     break;
@@ -224,15 +226,15 @@ void Core::writeback() {
 
   warp(inst_in_writeback_.wid).writeback(&inst_in_writeback_);
 
-  switch (inst_in_writeback_.rdest_type) {
-  case 1:
-    in_use_iregs_[inst_in_writeback_.wid][inst_in_writeback_.rdest] = 0;
+  switch (inst_in_writeback_.instr->getRDType()) {
+  case RegTypes::INTEGER:
+    in_use_iregs_[inst_in_writeback_.wid][inst_in_writeback_.instr->getRDest()] = 0;
     break;
-  case 2:
-    in_use_fregs_[inst_in_writeback_.wid][inst_in_writeback_.rdest] = 0;
+  case RegTypes::FLOAT:
+    in_use_fregs_[inst_in_writeback_.wid][inst_in_writeback_.instr->getRDest()] = 0;
     break;
-  case 3:
-    in_use_vregs_[inst_in_writeback_.rdest] = 0;
+  case RegTypes::VECTOR:
+    in_use_vregs_[inst_in_writeback_.instr->getRDest()] = 0;
     break;
   default:  
     break;

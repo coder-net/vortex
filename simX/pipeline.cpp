@@ -58,8 +58,6 @@ void Pipeline::next(Pipeline *drain) {
     drain->stall_warp = this->stall_warp;
     drain->wid = this->wid;
     drain->PC = this->PC;
-    drain->rdest = this->rdest;
-    drain->rdest_type = this->rdest_type;
     drain->used_iregs = this->used_iregs;
     drain->used_fregs = this->used_fregs;
     drain->used_vregs = this->used_vregs;

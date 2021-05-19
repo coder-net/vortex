@@ -56,19 +56,15 @@ void Warp::execute(Pipeline *pipeline) {
 }
 
 void Warp::read(Pipeline* pipeline) const {
+  assert(pipeline->instr &&"Not instruction for read stage");
+
   // Update pipeline
   pipeline->valid = true;
   pipeline->PC = getPC();
-  pipeline->rdest = pipeline->instr->getRDest();
-  pipeline->rdest_type = pipeline->instr->getRDType();
   pipeline->used_iregs.reset();
   pipeline->used_fregs.reset();
   pipeline->used_vregs.reset();
 
-  if (!pipeline->instr) {
-    D(3, "Not instruction for read stage");
-    return;
-  }
   auto& instr = *pipeline->instr;
   for (int tid = 0; tid < getNumThreads(); ++tid) {
     // copy src registers
@@ -77,12 +73,12 @@ void Warp::read(Pipeline* pipeline) const {
       const int rs = instr.getRSrc(i);
       if (i) DPN(3, ", ");
       switch (rst) {
-        case 1:
+        case RegTypes::INTEGER:
           pipeline->used_iregs[rs] = 1;
           instr.setRSData(iRegFile_.at(tid).at(rs), tid, i);
           DPN(3, "r" << std::dec << rs << "=0x" << std::hex << iRegFile_.at(tid).at(rs));
           break;
-        case 2:
+        case RegTypes::FLOAT:
           pipeline->used_fregs[rs] = 1;
           instr.setRSData(fRegFile_.at(tid).at(rs), tid, i);
           DPN(3, "fr" << std::dec << rs << "=0x" << std::hex << fRegFile_.at(tid).at(rs));
@@ -95,11 +91,11 @@ void Warp::read(Pipeline* pipeline) const {
     const int rdt = instr.getRDType();
     const int rd = instr.getRDest();
     switch (rdt) {
-      case 1:
+      case RegTypes::INTEGER:
         pipeline->used_iregs[rd] = 1;
         instr.setRDData(iRegFile_.at(tid).at(rd), tid);
         break;
-      case 2:
+      case RegTypes::FLOAT:
         pipeline->used_fregs[rd] = 1;
         instr.setRDData(fRegFile_.at(tid).at(rd), tid);
         break;
@@ -110,14 +106,14 @@ void Warp::read(Pipeline* pipeline) const {
   // for vector instr values
   // copy src registers
   for (int i = 0; i < instr.getNRSrc(); ++i) {
-    if (instr.getRSType(i) == 3) {
+    if (instr.getRSType(i) == RegTypes::VECTOR) {
       const int rs = instr.getRSrc(i);
       pipeline->used_vregs[rs] = 1;
       instr.setVRSData(vRegFile_.at(rs), i);
     }
   }
   // copy dst registers
-  if (instr.getRDType() == 3) {
+  if (instr.getRDType() == RegTypes::VECTOR) {
     const int rd = instr.getRDest();
     pipeline->used_vregs[rd] = 1;
     instr.setVRDData(vRegFile_.at(rd));
@@ -125,41 +121,25 @@ void Warp::read(Pipeline* pipeline) const {
 }
 
 void Warp::writeback(Pipeline* pipeline) {
-  if (!pipeline->instr) {
-    DPN(3, "Not instruction for writeback stage");
-    return;
-  }
+  assert(pipeline->instr && "Not instruction for writeback stage");
 
   auto& instr = *pipeline->instr;
   int rdest  = instr.getRDest();
   int rdt = instr.getRDType();
-
-  auto check = [](const Word l, const Word r, const std::string& s, int tid, int rdest) {
-    if (l == r) {
-      std::cout << "Check writeback is OK" << std::endl;
-    } else {
-      std::stringstream ss;
-      ss << "Not equal values, old: " << l << ", new: " << r << std::endl << "info: " << s
-         << ", tid: " << tid << ", rdest: " << rdest;
-      throw std::invalid_argument(ss.str());
-    }
-  };
 
   for (int tid = 0; tid < getNumThreads(); ++tid) {
     if (!instr.isThreadUsed(tid)) {
       continue;
     }
     switch (rdt) {
-      case 1:
+      case RegTypes::INTEGER:
         if (rdest) {
           D(3, "[" << std::dec << tid << "] Dest Register: r" << rdest << "=0x" << std::hex << std::hex << instr.getRDData(tid));
-          check(iRegFile_[tid][rdest], instr.getRDData(tid), "integer regs", tid, rdest);
           iRegFile_[tid][rdest] = instr.getRDData(tid);
         }
         break;
-      case 2:
+      case RegTypes::FLOAT:
         D(3, "[" << std::dec << tid << "] Dest Register: fr" << rdest << "=0x" << std::hex << std::hex << instr.getRDData(tid));
-        check(fRegFile_[tid][rdest], instr.getRDData(tid), "float regs", tid, rdest);
         fRegFile_[tid][rdest] = instr.getRDData(tid);
         break;
       default:
@@ -167,7 +147,7 @@ void Warp::writeback(Pipeline* pipeline) {
     }
   }
   // for vector instr values
-  if (instr.getRDest() == 3) {
+  if (instr.getRDest() == RegTypes::VECTOR) {
     vRegFile_[rdest] = instr.getVRDData();
   }
 }
