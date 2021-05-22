@@ -65,6 +65,7 @@ private:
   std::shared_ptr<WritePort<std::pair<int, Word>>> wp_fetch_2_decode_word_;
 };
 
+
 class DecodeModule : Module {
 public:
   DecodeModule(Core& core, PortsStorage& ps);
@@ -76,6 +77,22 @@ private:
   Core& core_;
   std::shared_ptr<ReadPort<std::pair<int, Word>>> rp_fetch_2_decode_word_;
   std::shared_ptr<WritePort<bool>> wp_decode_2_fetch_stall_;
+  std::shared_ptr<ReadPort<bool>> rp_read_2_decode_stall_;
+  std::shared_ptr<WritePort<std::pair<int, std::shared_ptr<Instr>>>> wp_decode_2_read_instr_;
+};
+
+
+class ReadModule : Module {
+public:
+  ReadModule(Core& core, PortsStorage& ps);
+
+  void clock_read(const size_t cycle);
+  bool is_active(const size_t cycle) const override;
+
+private:
+  Core& core_;
+  std::shared_ptr<ReadPort<std::pair<int, std::shared_ptr<Instr>>>> rp_decode_2_read_instr_;
+  std::shared_ptr<WritePort<bool>> wp_read_2_decode_stall_;
 
   std::shared_ptr<WritePort<int>> wp_execute_2_schedule_executed_wid_;
   std::shared_ptr<WritePort<int>> wp_execute_2_schedule_stalled_wid_;

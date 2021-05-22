@@ -8,6 +8,7 @@
 #include <iterator>
 #include <utility>
 
+#include "instr.h"
 #include "pipeline.h"
 #include "types.h"
 
@@ -137,6 +138,7 @@ protected:
   friend class ReadPort<T>;
 
   void basic_write(T&& value, const size_t cycle) {
+    assert(!destinations_.empty() && "Port writer destinations is empty");
     for (size_t idx = 1; idx < destinations_.size(); ++idx) {
       destinations_[idx]->emplace_back(T(value), cycle);
     }
@@ -171,9 +173,6 @@ struct WarpInfo {
   T info;
 };
 
-// declarations
-class Instr;
-
 struct PortsStorage {
   // schedule -> fetch
 //  static constexpr char* WPSchedule2FetchData = "WP_SCHEDULE_2_FETCH_DATA";
@@ -193,6 +192,12 @@ struct PortsStorage {
     , WPDecode2FetchStall(make_write_port<bool>("WP_DECODE_2_FETCH_STALL", StallLatency))
     , RPFetch2DecodeWord(make_read_port<std::pair<int, Word>>("RP_FETCH_2_DECODE_WORD", TestLatency))
     , WPFetch2DecodeWord(make_write_port<std::pair<int, Word>>("WP_FETCH_2_DECODE_WORD", TestLatency))
+    // read -> decode
+    , RPRead2DecodeStall(make_read_port<bool>("RP_READ_2_DECODE_STALL", StallLatency))
+    , WPRead2DecodeStall(make_write_port<bool>("WP_READ_2_DECODE_STALL", StallLatency))
+    // decode -> read
+    , RPDecode2ReadInstr(make_read_port<std::pair<int, std::shared_ptr<Instr>>>("RP_DECODE_2_READ_INSTR", TestLatency))
+    , WPDecode2ReadInstr(make_write_port<std::pair<int, std::shared_ptr<Instr>>>("WP_DECODE_2_READ_INSTR", TestLatency))
     // execute -> schedule
     , RPExecute2ScheduleExecutedWID(make_read_port<int>("RP_EXECUTE_2_SCHEDULE_EXECUTED_WID", TestLatency))
     , WPExecute2ScheduleExecutedWID(make_write_port<int>("WP_EXECUTE_2_SCHEDULE_EXECUTED_WID", TestLatency))
@@ -211,6 +216,9 @@ struct PortsStorage {
     WPExecute2ScheduleStalledWID->add_reader(RPExecute2ScheduleStalledWID);
 
     WPWriteback2ScheduleUnstalledWID->add_reader(RPWriteback2ScheduleUnstalledWID);
+
+    WPRead2DecodeStall->add_reader(RPRead2DecodeStall);
+    WPDecode2ReadInstr->add_reader(RPDecode2ReadInstr);
   }
 
   // fetch -> schedule
@@ -229,13 +237,13 @@ struct PortsStorage {
   std::shared_ptr<ReadPort<std::pair<int, Word>>> RPFetch2DecodeWord;
   std::shared_ptr<WritePort<std::pair<int, Word>>> WPFetch2DecodeWord;
 
-//  // read -> decode
-//  std::shared_ptr<ReadPort<bool>> RPRead2DecodeStall;
-//  std::shared_ptr<WritePort<bool>> WPRead2DecodeStall;
-//
-//  // decode -> read
-//  std::shared_ptr<ReadPort<std::pair<int, Instr>>> RPDecode2ReadInstr;
-//  std::shared_ptr<WritePort<std::pair<int, Instr>>> WPDecode2ReadInstr;
+  // read -> decode
+  std::shared_ptr<ReadPort<bool>> RPRead2DecodeStall;
+  std::shared_ptr<WritePort<bool>> WPRead2DecodeStall;
+
+  // decode -> read
+  std::shared_ptr<ReadPort<std::pair<int, std::shared_ptr<Instr>>>> RPDecode2ReadInstr;
+  std::shared_ptr<WritePort<std::pair<int, std::shared_ptr<Instr>>>> WPDecode2ReadInstr;
 
   // execute -> schedule
   std::shared_ptr<ReadPort<int>> RPExecute2ScheduleExecutedWID;

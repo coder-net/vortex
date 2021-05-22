@@ -145,12 +145,79 @@ DecodeModule::DecodeModule(Core &core, PortsStorage &ps)
   , core_(core)
   , rp_fetch_2_decode_word_(ps.RPFetch2DecodeWord)
   , wp_decode_2_fetch_stall_(ps.WPDecode2FetchStall)
+  , rp_read_2_decode_stall_(ps.RPRead2DecodeStall)
+  , wp_decode_2_read_instr_(ps.WPDecode2ReadInstr)
+{}
+
+void DecodeModule::clock_decode(const size_t cycle) {
+  D(3, debug_info());
+
+  bool is_stall = false;
+  rp_read_2_decode_stall_->read(&is_stall, cycle);
+  if (is_stall) {
+    D(3, "Module: " << name() << " is stalled");
+    wp_decode_2_fetch_stall_->write(true, cycle);
+    return;
+  }
+
+  std::pair<int, Word> fetched;
+  if (!rp_fetch_2_decode_word_->read(&fetched, cycle)) {
+    D(3, name() << ", not fetched info for " << cycle << " cycle");
+    return; // exit
+  } else {
+    auto instr = core_.decoder().decode(fetched.second);
+    D(3, "inst decoded");
+    wp_decode_2_read_instr_->write(std::make_pair(fetched.first, std::move(instr)), cycle);
+    D(3, name() << ", decoded instr for WID: " << fetched.first << " for " << cycle << " cycle");
+  }
+
+//  core_.writeback();
+////  if (core_.inst_in_writeback_.stall_warp) {
+////    wp_writeback_2_schedule_unstalled_wid_->write(core_.inst_in_writeback_.wid, cycle);
+////    D(3, "Send unstalled WID: " << core_.inst_in_writeback_.wid << " to schedule");
+////  }
+//  core_.execute();
+////  if (core_.inst_in_execute_.stall_warp) {
+////    wp_execute_2_schedule_stalled_wid_->write(core_.inst_in_execute_.wid, cycle);
+////  }
+//  // wp_execute_2_schedule_executed_wid_->write(core_.inst_in_execute_.wid, cycle);
+//  core_.read();
+//
+//  std::pair<int, Word> fetched;
+//  if (rp_fetch_2_decode_word_->read(&fetched, cycle)) {
+//    core_.inst_in_decode_.valid = true;
+//    core_.inst_in_decode_.wid = fetched.first;
+//    core_.inst_in_decode_.fetched = fetched.second;
+//  } else {
+//    core_.inst_in_decode_.valid = false;
+//  }
+//
+//  core_.decode();
+//
+//  if (core_.inst_in_decode_.stalled) {
+//    wp_decode_2_fetch_stall_->write(true, cycle);
+//    D(3, name() << " is stall, write for fetch module");
+//  }
+}
+
+bool DecodeModule::is_active(const size_t cycle) const {
+  return !rp_fetch_2_decode_word_->is_empty(cycle)
+      || !rp_read_2_decode_stall_->is_empty(cycle);
+}
+
+ReadModule::ReadModule(Core &core, PortsStorage &ps)
+  : Module("READ_MODULE")
+  , core_(core)
+  , rp_decode_2_read_instr_(ps.RPDecode2ReadInstr)
+  , wp_read_2_decode_stall_(ps.WPRead2DecodeStall)
   , wp_execute_2_schedule_executed_wid_(ps.WPExecute2ScheduleExecutedWID)
   , wp_execute_2_schedule_stalled_wid_(ps.WPExecute2ScheduleStalledWID)
   , wp_writeback_2_schedule_unstalled_wid_(ps.WPWriteback2ScheduleUnstalledWID)
 {}
 
-void DecodeModule::clock_decode(const size_t cycle) {
+void ReadModule::clock_read(const size_t cycle) {
+  D(3, debug_info());
+
   core_.writeback();
 //  if (core_.inst_in_writeback_.stall_warp) {
 //    wp_writeback_2_schedule_unstalled_wid_->write(core_.inst_in_writeback_.wid, cycle);
@@ -161,27 +228,28 @@ void DecodeModule::clock_decode(const size_t cycle) {
 //    wp_execute_2_schedule_stalled_wid_->write(core_.inst_in_execute_.wid, cycle);
 //  }
   // wp_execute_2_schedule_executed_wid_->write(core_.inst_in_execute_.wid, cycle);
-  core_.read();
 
-  std::pair<int, Word> fetched;
-  if (rp_fetch_2_decode_word_->read(&fetched, cycle)) {
-    core_.inst_in_decode_.valid = true;
-    core_.inst_in_decode_.wid = fetched.first;
-    core_.inst_in_decode_.fetched = fetched.second;
+  std::pair<int, std::shared_ptr<Instr>> instr;
+  if (rp_decode_2_read_instr_->read(&instr, cycle)) {
+    D(3, name() << ", get instr from decode module");
+    assert(instr.second && "Instr is invalid");
+    core_.inst_in_read_.valid = true;
+    core_.inst_in_read_.wid = instr.first;
+    core_.inst_in_read_.instr = instr.second;
   } else {
-    core_.inst_in_decode_.valid = false;
+    core_.inst_in_read_.valid = false;
   }
 
-  core_.decode();
+  core_.read();
 
-  if (core_.inst_in_decode_.stalled) {
-    wp_decode_2_fetch_stall_->write(true, cycle);
-    D(3, name() << " is stall, write for fetch module");
+  if (core_.inst_in_read_.stalled) {
+    wp_read_2_decode_stall_->write(true, cycle);
+    D(3, name() << " is stall, write for decode module");
   }
 }
 
-bool DecodeModule::is_active(const size_t cycle) const {
-  return !rp_fetch_2_decode_word_->is_empty(cycle);
+bool ReadModule::is_active(const size_t cycle) const {
+  return !rp_decode_2_read_instr_->is_empty(cycle);
 }
 
 } // namespace vortex
