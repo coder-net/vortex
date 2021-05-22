@@ -3,6 +3,7 @@
 #include <sstream>
 
 #include "core.h"
+#include "instr.h"
 
 namespace vortex {
 
@@ -36,12 +37,14 @@ ScheduleModule::ScheduleModule(Core& core, PortsStorage& ps)
 void ScheduleModule::clock_schedule(const size_t cycle) {
   D(3, debug_info());
 
-  bool is_stall = false;
-  rp_fetch_2_schedule_stall_->read(&is_stall, cycle);
-  if (is_stall) {
-//    assert(core_.inst_in_schedule_.stalled && "Module is stalled, but pipeline is not");
-    D(3, "Module: " << name() << " is stalled");
-    return;
+  // check module stalling
+  {
+    bool is_stall = false;
+    rp_fetch_2_schedule_stall_->read(&is_stall, cycle);
+    if (is_stall) {
+      D(3, "Module: " << name() << " is stalled");
+      return;
+    }
   }
   // setting states from other modules
   {
@@ -60,12 +63,6 @@ void ScheduleModule::clock_schedule(const size_t cycle) {
     }
   }
 
-  D(3, "stalled warps stable: " << core_.stalled_warps_ << ", test: " << stalled_warps_);
-  assert(core_.stalled_warps_ == stalled_warps_ && "Not equal stalled warps");
-  assert(core_.executing_queue_warps_ == executing_warps_ && "Not equal executing warps");
-//  assert(!core_.inst_in_schedule_.stalled && "Module is not stalled, but pipeline is");
-//  assert(core_.inst_in_schedule_.valid && "Pipeline is invalid");
-
   bool foundSchedule = false;
   int scheduled_warp = last_schedule_wid_;
 
@@ -83,20 +80,12 @@ void ScheduleModule::clock_schedule(const size_t cycle) {
     }
   }
 
-//  if (foundSchedule) {
-//    core_.executing_queue_warps_[scheduled_warp] = 0;
-//  }
-//
-//  core_.schedule();
-//
-//  assert(core_.inst_in_fetch_.valid == foundSchedule && "Diff in FoundSchedule");
-
   if (!foundSchedule) {
     D(3, "Schedule warp not found");
   } else {
     last_schedule_wid_ = scheduled_warp;
     wp_schedule_2_fetch_->write(scheduled_warp, cycle);
-    D(3, "Schedule: wid=" << scheduled_warp);
+    D(3, "Schedule: WID=" << scheduled_warp);
   }
 
 //  assert(core_.inst_in_schedule_.wid == last_schedule_wid_ && "Not equal last schedules WID");
@@ -105,8 +94,8 @@ void ScheduleModule::clock_schedule(const size_t cycle) {
 bool ScheduleModule::is_active(const size_t cycle) const {
   return !rp_execute_2_schedule_executed_wid_->is_empty(cycle)
       || !rp_execute_2_schedule_stalled_wid_->is_empty(cycle)
-      || !rp_writeback_2_schedule_unstalled_wid_->is_empty(cycle);
-      //|| !rp_fetch_2_schedule_stall_->is_empty(cycle);
+      || !rp_writeback_2_schedule_unstalled_wid_->is_empty(cycle)
+      || !rp_fetch_2_schedule_stall_->is_empty(cycle);
 }
 
 void ScheduleModule::reset() {
@@ -120,14 +109,48 @@ FetchModule::FetchModule(Core& core, PortsStorage& ps)
         , core_(core)
         , rp_schedule_2_fetch_wid_(ps.RPSchedule2FetchWID_)
         , wp_fetch_2_schedule_stall_(ps.WPFetch2ScheduleStall_)
-        , wp_execute_2_schedule_executed_wid_(ps.WPExecute2ScheduleExecutedWID)
-        , wp_execute_2_schedule_stalled_wid_(ps.WPExecute2ScheduleStalledWID)
-        , wp_writeback_2_schedule_unstalled_wid_(ps.WPWriteback2ScheduleUnstalledWID)
+        , rp_decode_2_fetch_stall_(ps.RPDecode2FetchStall)
+        , wp_fetch_2_decode_word_(ps.WPFetch2DecodeWord)
 {}
 
 void FetchModule::clock_fetch(const size_t cycle) {
   D(3, debug_info());
 
+  bool is_stall = false;
+  rp_decode_2_fetch_stall_->read(&is_stall, cycle);
+  if (is_stall) {
+    D(3, "Module: " << name() << " is stalled");
+    wp_fetch_2_schedule_stall_->write(true, cycle);
+    return;
+  }
+
+  int wid;
+  if (!rp_schedule_2_fetch_wid_->read(&wid, cycle)) {
+    D(3, name() << ", not WID from schedule for " << cycle << " cycle");
+    return; // exit
+  } else {
+    auto fetched = core_.icache_fetch(core_.warp(wid).getPC());
+    wp_fetch_2_decode_word_->write(std::make_pair(wid, fetched), cycle);
+    D(3, name() << ", WID: " << wid << " from schedule for " << cycle << " cycle");
+  }
+}
+
+bool FetchModule::is_active(const size_t cycle) const {
+  return !rp_schedule_2_fetch_wid_->is_empty(cycle)
+      || !rp_decode_2_fetch_stall_->is_empty(cycle);
+}
+
+DecodeModule::DecodeModule(Core &core, PortsStorage &ps)
+  : Module("DECODE_MODULE")
+  , core_(core)
+  , rp_fetch_2_decode_word_(ps.RPFetch2DecodeWord)
+  , wp_decode_2_fetch_stall_(ps.WPDecode2FetchStall)
+  , wp_execute_2_schedule_executed_wid_(ps.WPExecute2ScheduleExecutedWID)
+  , wp_execute_2_schedule_stalled_wid_(ps.WPExecute2ScheduleStalledWID)
+  , wp_writeback_2_schedule_unstalled_wid_(ps.WPWriteback2ScheduleUnstalledWID)
+{}
+
+void DecodeModule::clock_decode(const size_t cycle) {
   core_.writeback();
 //  if (core_.inst_in_writeback_.stall_warp) {
 //    wp_writeback_2_schedule_unstalled_wid_->write(core_.inst_in_writeback_.wid, cycle);
@@ -139,28 +162,26 @@ void FetchModule::clock_fetch(const size_t cycle) {
 //  }
   // wp_execute_2_schedule_executed_wid_->write(core_.inst_in_execute_.wid, cycle);
   core_.read();
-  core_.decode();
 
-  int wid;
-  if (!rp_schedule_2_fetch_wid_->read(&wid, cycle)) {
-    core_.inst_in_fetch_.valid = false;
-    D(3, name() << ", not WID from schedule for " << cycle << " cycle");
+  std::pair<int, Word> fetched;
+  if (rp_fetch_2_decode_word_->read(&fetched, cycle)) {
+    core_.inst_in_decode_.valid = true;
+    core_.inst_in_decode_.wid = fetched.first;
+    core_.inst_in_decode_.fetched = fetched.second;
   } else {
-    core_.inst_in_fetch_.valid = true;
-    core_.inst_in_fetch_.wid = wid;
-    D(3, name() << ", WID: " << wid << " from schedule for " << cycle << " cycle");
+    core_.inst_in_decode_.valid = false;
   }
 
-  core_.fetch();
+  core_.decode();
 
-  if (core_.inst_in_fetch_.stalled) {
-    wp_fetch_2_schedule_stall_->write(true, cycle);
-    D(3, name() << " is stall, write for schedule module");
+  if (core_.inst_in_decode_.stalled) {
+    wp_decode_2_fetch_stall_->write(true, cycle);
+    D(3, name() << " is stall, write for fetch module");
   }
 }
 
-bool FetchModule::is_active(const size_t cycle) const {
-  return !rp_schedule_2_fetch_wid_->is_empty(cycle);
+bool DecodeModule::is_active(const size_t cycle) const {
+  return !rp_fetch_2_decode_word_->is_empty(cycle);
 }
 
 } // namespace vortex

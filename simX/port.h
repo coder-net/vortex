@@ -171,6 +171,8 @@ struct WarpInfo {
   T info;
 };
 
+// declarations
+class Instr;
 
 struct PortsStorage {
   // schedule -> fetch
@@ -189,8 +191,8 @@ struct PortsStorage {
     // fetch -> decode
     , RPDecode2FetchStall(make_read_port<bool>("RP_DECODE_2_FETCH_STALL", StallLatency))
     , WPDecode2FetchStall(make_write_port<bool>("WP_DECODE_2_FETCH_STALL", StallLatency))
-    , RPFetch2DecodeWord(make_read_port<Word>("RP_FETCH_2_DECODE_WORD", TestLatency))
-    , WPFetch2DecodeWord(make_write_port<Word>("WP_FETCH_2_DECODE_WORD", TestLatency))
+    , RPFetch2DecodeWord(make_read_port<std::pair<int, Word>>("RP_FETCH_2_DECODE_WORD", TestLatency))
+    , WPFetch2DecodeWord(make_write_port<std::pair<int, Word>>("WP_FETCH_2_DECODE_WORD", TestLatency))
     // execute -> schedule
     , RPExecute2ScheduleExecutedWID(make_read_port<int>("RP_EXECUTE_2_SCHEDULE_EXECUTED_WID", TestLatency))
     , WPExecute2ScheduleExecutedWID(make_write_port<int>("WP_EXECUTE_2_SCHEDULE_EXECUTED_WID", TestLatency))
@@ -211,17 +213,29 @@ struct PortsStorage {
     WPWriteback2ScheduleUnstalledWID->add_reader(RPWriteback2ScheduleUnstalledWID);
   }
 
-  // schedule -> fetch
+  // fetch -> schedule
   std::shared_ptr<ReadPort<bool>> RPFetch2ScheduleStall_;
   std::shared_ptr<WritePort<bool>> WPFetch2ScheduleStall_;
+
+  // schedule -> fetch
   std::shared_ptr<ReadPort<int>> RPSchedule2FetchWID_;
   std::shared_ptr<WritePort<int>> WPSchedule2FetchWID_;
 
-  // fetch -> decode
+  // decode -> fetch
   std::shared_ptr<ReadPort<bool>> RPDecode2FetchStall;
   std::shared_ptr<WritePort<bool>> WPDecode2FetchStall;
-  std::shared_ptr<ReadPort<Word>> RPFetch2DecodeWord;
-  std::shared_ptr<WritePort<Word>> WPFetch2DecodeWord;
+
+  // fetch -> decode
+  std::shared_ptr<ReadPort<std::pair<int, Word>>> RPFetch2DecodeWord;
+  std::shared_ptr<WritePort<std::pair<int, Word>>> WPFetch2DecodeWord;
+
+//  // read -> decode
+//  std::shared_ptr<ReadPort<bool>> RPRead2DecodeStall;
+//  std::shared_ptr<WritePort<bool>> WPRead2DecodeStall;
+//
+//  // decode -> read
+//  std::shared_ptr<ReadPort<std::pair<int, Instr>>> RPDecode2ReadInstr;
+//  std::shared_ptr<WritePort<std::pair<int, Instr>>> WPDecode2ReadInstr;
 
   // execute -> schedule
   std::shared_ptr<ReadPort<int>> RPExecute2ScheduleExecutedWID;
@@ -232,6 +246,7 @@ struct PortsStorage {
   // writeback -> schedule
   std::shared_ptr<ReadPort<int>> RPWriteback2ScheduleUnstalledWID;
   std::shared_ptr<WritePort<int>> WPWriteback2ScheduleUnstalledWID;
+
 };
 
 } // namespace vortex

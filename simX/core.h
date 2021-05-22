@@ -119,6 +119,7 @@ public:
   // modules
   ScheduleModule schedule_module_;
   FetchModule fetch_module_;
+  DecodeModule decode_module_;
 };
 
 } // namespace vortex

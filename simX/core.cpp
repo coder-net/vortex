@@ -27,7 +27,8 @@ Core::Core(const ArchDef &arch, Decoder &decoder, MemoryUnit &mem, Word id)
     , inst_in_writeback_("writeback")
     , ports_()
     , schedule_module_(*this, ports_)
-    , fetch_module_(*this, ports_) {
+    , fetch_module_(*this, ports_)
+    , decode_module_(*this, ports_) {
   in_use_iregs_.resize(arch.num_warps(), 0);
   in_use_fregs_.resize(arch.num_warps(), 0);
   in_use_vregs_.reset();
@@ -92,6 +93,7 @@ void Core::step() {
   // schedule_module_.clock_schedule(steps_);
   schedule_module_.clock_schedule(steps_);
   fetch_module_.clock_fetch(steps_);
+  decode_module_.clock_decode(steps_);
 
   steps_++;
 //  if (steps_ > 15) {
@@ -377,7 +379,7 @@ void Core::dcache_write(Addr addr, Word data, Size size) {
 bool Core::running() const {
   return schedule_module_.is_active((size_t)num_steps())
       || fetch_module_.is_active((size_t)num_steps())
-      || inst_in_decode_.valid 
+      || decode_module_.is_active((size_t)num_steps())
       || inst_in_read_.valid 
       || inst_in_execute_.valid 
       || inst_in_writeback_.valid;

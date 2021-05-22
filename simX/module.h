@@ -10,6 +10,7 @@
 namespace vortex {
 
 class Core;
+class Instr;
 
 class Module {
 public:
@@ -32,9 +33,7 @@ public:
   ScheduleModule(Core& core, PortsStorage& ps);
 
   void clock_schedule(const size_t cycle);
-
   bool is_active(const size_t cycle) const override;
-
   void reset();
 
 private:
@@ -56,13 +55,27 @@ public:
   FetchModule(Core& core, PortsStorage& ps);
 
   void clock_fetch(const size_t cycle);
-
   bool is_active(const size_t cycle) const override;
 
 private:
   Core& core_;
   std::shared_ptr<ReadPort<int>> rp_schedule_2_fetch_wid_;
   std::shared_ptr<WritePort<bool>> wp_fetch_2_schedule_stall_;
+  std::shared_ptr<ReadPort<bool>> rp_decode_2_fetch_stall_;
+  std::shared_ptr<WritePort<std::pair<int, Word>>> wp_fetch_2_decode_word_;
+};
+
+class DecodeModule : Module {
+public:
+  DecodeModule(Core& core, PortsStorage& ps);
+
+  void clock_decode(const size_t cycle);
+  bool is_active(const size_t cycle) const override;
+
+private:
+  Core& core_;
+  std::shared_ptr<ReadPort<std::pair<int, Word>>> rp_fetch_2_decode_word_;
+  std::shared_ptr<WritePort<bool>> wp_decode_2_fetch_stall_;
 
   std::shared_ptr<WritePort<int>> wp_execute_2_schedule_executed_wid_;
   std::shared_ptr<WritePort<int>> wp_execute_2_schedule_stalled_wid_;
