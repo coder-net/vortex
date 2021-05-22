@@ -15,8 +15,11 @@
 #include "mem.h"
 #include "warp.h"
 #include "pipeline.h"
+#include "port.h"
+#include "module.h"
 
 namespace vortex {
+
 
 class Core {
 public:
@@ -27,6 +30,8 @@ public:
   bool running() const;
 
   void step();
+
+  void step_old();
 
   void printStats() const;
 
@@ -68,9 +73,9 @@ public:
 
   Word dcache_read(Addr, Size);
 
-  void dcache_write(Addr, Word, Size);  
+  void dcache_write(Addr, Word, Size);
 
-private: 
+// private:
 
   void schedule();
   void fetch();
@@ -96,7 +101,7 @@ private:
   MemoryUnit &mem_;
 #ifdef SM_ENABLE
   RAM shared_mem_;
-#endif 
+#endif
 
   Pipeline inst_in_schedule_;
   Pipeline inst_in_fetch_;
@@ -108,7 +113,12 @@ private:
   uint64_t steps_;
   uint64_t insts_;
   uint64_t loads_;
-  uint64_t stores_; 
+  uint64_t stores_;
+
+  PortsStorage ports_;
+  // modules
+  ScheduleModule schedule_module_;
+  FetchModule fetch_module_;
 };
 
 } // namespace vortex

@@ -24,7 +24,10 @@ Core::Core(const ArchDef &arch, Decoder &decoder, MemoryUnit &mem, Word id)
     , inst_in_decode_("decode")
     , inst_in_read_("read")
     , inst_in_execute_("execute")
-    , inst_in_writeback_("writeback") {
+    , inst_in_writeback_("writeback")
+    , ports_()
+    , schedule_module_(*this, ports_)
+    , fetch_module_(*this, ports_) {
   in_use_iregs_.resize(arch.num_warps(), 0);
   in_use_fregs_.resize(arch.num_warps(), 0);
   in_use_vregs_.reset();
@@ -85,9 +88,20 @@ void Core::clear() {
 }
 
 void Core::step() {
-  D(3, "###########################################################");
+  D(3, "CYCLE: " << steps_);
+  // schedule_module_.clock_schedule(steps_);
+  schedule_module_.clock_schedule(steps_);
+  fetch_module_.clock_fetch(steps_);
 
   steps_++;
+//  if (steps_ > 15) {
+//    throw std::invalid_argument("steps > 5");
+//  }
+}
+
+void Core::step_old() {
+  D(3, "###########################################################");
+
   D(3, std::dec << "Core" << id_ << ": cycle: " << steps_);
 
   DPH(3, "stalled warps:");
@@ -101,7 +115,7 @@ void Core::step() {
   this->read();
   this->decode();
   this->fetch();
-  this->schedule();
+  // this->schedule();
 
   DPN(3, std::flush);
 }
@@ -203,6 +217,7 @@ void Core::execute() {
   auto active_threads_a = warp(wid).getActiveThreads();
 
   executing_queue_warps_[wid] = 0;
+  ports_.WPExecute2ScheduleExecutedWID->write(wid, static_cast<size_t>(num_steps()));
 
   insts_ += active_threads_b;
   if (active_threads_b != active_threads_a) {
@@ -212,6 +227,7 @@ void Core::execute() {
   if (inst_in_execute_.stall_warp) {
     D(3, "** warp #" << wid << " stalled");
     stalled_warps_[wid] = true;
+    ports_.WPExecute2ScheduleStalledWID->write(wid, static_cast<size_t>(num_steps()));
   }
 
   D(4, inst_in_execute_);
@@ -242,6 +258,7 @@ void Core::writeback() {
 
   if (inst_in_writeback_.stall_warp) {
     stalled_warps_[inst_in_writeback_.wid] = 0;
+    ports_.WPWriteback2ScheduleUnstalledWID->write(inst_in_writeback_.wid, static_cast<size_t>(num_steps()));
   }
 
   // copy to next
@@ -358,7 +375,8 @@ void Core::dcache_write(Addr addr, Word data, Size size) {
 }
 
 bool Core::running() const {
-  return inst_in_fetch_.valid 
+  return schedule_module_.is_active((size_t)num_steps())
+      || fetch_module_.is_active((size_t)num_steps())
       || inst_in_decode_.valid 
       || inst_in_read_.valid 
       || inst_in_execute_.valid 
