@@ -19,12 +19,6 @@ Core::Core(const ArchDef &arch, Decoder &decoder, MemoryUnit &mem, Word id)
     , decoder_(decoder)
     , mem_(mem)
     , shared_mem_(1, SMEM_SIZE)
-    , inst_in_schedule_("schedule")
-    , inst_in_fetch_("fetch")
-    , inst_in_decode_("decode")
-    , inst_in_read_("read")
-    , inst_in_execute_("execute")
-    , inst_in_writeback_("writeback")
     , ports_()
     , schedule_module_(*this, ports_)
     , fetch_module_(*this, ports_)
@@ -64,7 +58,7 @@ void Core::clear() {
     warp->clear();
   }
 
-  steps_  = 0;
+  cycles  = 0;
   insts_  = 0;
   loads_  = 0;
   stores_ = 0;
@@ -73,16 +67,15 @@ void Core::clear() {
 }
 
 void Core::step() {
-  D(3, "CYCLE: " << steps_);
-  // schedule_module_.clock_schedule(steps_);
-  schedule_module_.clock_schedule(steps_);
-  fetch_module_.clock_fetch(steps_);
-  decode_module_.clock_decode(steps_);
-  read_module_.clock_read(steps_);
-  execute_module_.clock_execute(steps_);
-  writeback_module_.clock_writeback(steps_);
+  D(3, "CYCLE: " << cycles);
+  schedule_module_.clock_schedule(cycles);
+  fetch_module_.clock_fetch(cycles);
+  decode_module_.clock_decode(cycles);
+  read_module_.clock_read(cycles);
+  execute_module_.clock_execute(cycles);
+  writeback_module_.clock_writeback(cycles);
 
-  steps_++;
+  cycles++;
 }
 
 Word Core::get_csr(Addr addr, int tid, int wid) {
@@ -128,10 +121,10 @@ Word Core::get_csr(Addr addr, int tid, int wid) {
     return (Word)(insts_ >> 32);
   } else if (addr == CSR_CYCLE) {
     // NumCycles
-    return (Word)steps_;
+    return (Word)cycles;
   } else if (addr == CSR_CYCLE_H) {
     // NumCycles
-    return (Word)(steps_ >> 32);
+    return (Word)(cycles >> 32);
   } else {
     return csrs_.at(addr);
   }
@@ -195,16 +188,16 @@ void Core::dcache_write(Addr addr, Word data, Size size) {
 }
 
 bool Core::running() const {
-  return schedule_module_.is_active((size_t)num_steps())
-      || fetch_module_.is_active((size_t)num_steps())
-      || decode_module_.is_active((size_t)num_steps())
-      || read_module_.is_active((size_t)num_steps())
-      || execute_module_.is_active((size_t)num_steps())
-      || writeback_module_.is_active((size_t)num_steps());
+  return schedule_module_.is_active((size_t)num_cycles())
+      || fetch_module_.is_active((size_t)num_cycles())
+      || decode_module_.is_active((size_t)num_cycles())
+      || read_module_.is_active((size_t)num_cycles())
+      || execute_module_.is_active((size_t)num_cycles())
+      || writeback_module_.is_active((size_t)num_cycles());
 }
 
 void Core::printStats() const {
-  std::cout << "Steps : " << steps_ << std::endl
+  std::cout << "Steps : " << cycles << std::endl
             << "Insts : " << insts_ << std::endl
             << "Loads : " << loads_ << std::endl
             << "Stores: " << stores_ << std::endl;

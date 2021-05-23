@@ -53,9 +53,13 @@ public:
     return insts_;
   }
 
-  unsigned long num_steps() const {
-    return steps_;
-  } 
+  unsigned long num_cycles() const {
+    return cycles;
+  }
+
+  void inc_insts(const int diff) {
+    insts_ += diff;
+  }
 
   Word getIRegValue(int reg) const {
     return warps_[0]->getIRegValue(reg);
@@ -73,7 +77,7 @@ public:
 
   void dcache_write(Addr, Word, Size);
 
-// private:
+private:
   std::vector<std::shared_ptr<Warp>> warps_;  
   std::vector<WarpMask> barriers_;  
   std::vector<Word> csrs_;
@@ -87,14 +91,7 @@ public:
   RAM shared_mem_;
 #endif
 
-  Pipeline inst_in_schedule_;
-  Pipeline inst_in_fetch_;
-  Pipeline inst_in_decode_;
-  Pipeline inst_in_read_;
-  Pipeline inst_in_execute_;
-  Pipeline inst_in_writeback_;
-
-  uint64_t steps_;
+  uint64_t cycles;
   uint64_t insts_;
   uint64_t loads_;
   uint64_t stores_;

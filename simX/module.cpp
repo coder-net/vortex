@@ -313,7 +313,7 @@ void ExecuteModule::clock_execute(const size_t cycle) {
 
     wp_execute_2_schedule_executed_wid_->write(wid, cycle);
 
-    core_.insts_ += active_threads_a;
+    core_.inc_insts(active_threads_a);
 
     if (active_threads_b != active_threads_a) {
       D(3, "** warp #" << wid << " active threads changed from " << active_threads_b << " to " << active_threads_a);
