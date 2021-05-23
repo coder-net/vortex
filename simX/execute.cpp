@@ -98,12 +98,6 @@ bool Warp::executing(Instr& instr) {
     if (!tmask_.test(t) || runOnce)
       continue;
 
-    // instr.setThreadUsed(t);
-
-    // TODO: remove it
-    auto &iregs = iRegFile_.at(t);
-    auto &fregs = fRegFile_.at(t);
-
     auto rsdata = instr.getRSData(t);
     Word& rddata = instr.getRDData(t);
 
@@ -1722,23 +1716,6 @@ bool Warp::executing(Instr& instr) {
     } break;    
     default:
       std::abort();
-    }
-
-    // TODO: remove it
-    int rdt = instr.getRDType();
-    switch (rdt) {
-    case 1:      
-      if (rdest) {
-        D(3, "[" << std::dec << t << "] Dest Register: r" << rdest << "=0x" << std::hex << std::hex << rddata);
-        iregs[rdest] = rddata;
-      }
-      break;
-    case 2:
-      D(3, "[" << std::dec << t << "] Dest Register: fr" << rdest << "=0x" << std::hex << std::hex << rddata);
-      fregs[rdest] = rddata;
-      break;
-    default:
-      break;
     }
   }
 

@@ -202,10 +202,6 @@ struct WritebackInfo {
 };
 
 struct PortsStorage {
-  // schedule -> fetch
-//  static constexpr char* WPSchedule2FetchData = "WP_SCHEDULE_2_FETCH_DATA";
-//  static constexpr char* RPFetch2ScheduleStall = "RP_FETCH_2_SCHEDULE_STALL";
-
   static constexpr size_t StallLatency = 1;
   static constexpr size_t TestLatency = 2;
 
