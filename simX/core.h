@@ -15,8 +15,11 @@
 #include "mem.h"
 #include "warp.h"
 #include "pipeline.h"
+#include "port.h"
+#include "module.h"
 
 namespace vortex {
+
 
 class Core {
 public:
@@ -50,9 +53,13 @@ public:
     return insts_;
   }
 
-  unsigned long num_steps() const {
-    return steps_;
-  } 
+  unsigned long num_cycles() const {
+    return cycles;
+  }
+
+  void inc_insts(const int diff) {
+    insts_ += diff;
+  }
 
   Word getIRegValue(int reg) const {
     return warps_[0]->getIRegValue(reg);
@@ -68,23 +75,9 @@ public:
 
   Word dcache_read(Addr, Size);
 
-  void dcache_write(Addr, Word, Size);  
+  void dcache_write(Addr, Word, Size);
 
-private: 
-
-  void schedule();
-  void fetch();
-  void decode();
-  void read();
-  void execute();
-  void writeback();
-  
-  
-  std::vector<RegMask> in_use_iregs_;
-  std::vector<RegMask> in_use_fregs_;
-  RegMask in_use_vregs_;
-  WarpMask stalled_warps_;
-  WarpMask executing_queue_warps_;
+private:
   std::vector<std::shared_ptr<Warp>> warps_;  
   std::vector<WarpMask> barriers_;  
   std::vector<Word> csrs_;
@@ -96,19 +89,21 @@ private:
   MemoryUnit &mem_;
 #ifdef SM_ENABLE
   RAM shared_mem_;
-#endif 
+#endif
 
-  Pipeline inst_in_schedule_;
-  Pipeline inst_in_fetch_;
-  Pipeline inst_in_decode_;
-  Pipeline inst_in_read_;
-  Pipeline inst_in_execute_;
-  Pipeline inst_in_writeback_;
-
-  uint64_t steps_;
+  uint64_t cycles;
   uint64_t insts_;
   uint64_t loads_;
-  uint64_t stores_; 
+  uint64_t stores_;
+
+  PortsStorage ports_;
+  // modules
+  ScheduleModule schedule_module_;
+  FetchModule fetch_module_;
+  DecodeModule decode_module_;
+  ReadModule read_module_;
+  ExecuteModule execute_module_;
+  WritebaskModule writeback_module_;
 };
 
 } // namespace vortex

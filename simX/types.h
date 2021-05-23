@@ -28,4 +28,10 @@ enum MemFlags {
   EX_SUP = 32
 };
 
+enum RegTypes {
+  INTEGER = 1,
+  FLOAT = 2,
+  VECTOR = 3,
+};
+
 }

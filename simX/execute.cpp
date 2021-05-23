@@ -68,10 +68,10 @@ static void update_fcrs(Core* core, int tid, int wid, bool outOfRange = false) {
   }
 }
 
-void Warp::executing(Pipeline *pipeline) {
+bool Warp::executing(Instr& instr) {
   assert(tmask_.any() && "Warp::executing");
 
-  auto& instr = *pipeline->instr;
+  bool stall_warp = false;
 
   Word nextPC = PC_ + core_->arch().wsize();
   bool runOnce = false;
@@ -97,12 +97,6 @@ void Warp::executing(Pipeline *pipeline) {
   for (int t = 0; t < num_threads; t++) {
     if (!tmask_.test(t) || runOnce)
       continue;
-
-    instr.setThreadUsed(t);
-
-    // TODO: remove it
-    auto &iregs = iRegFile_.at(t);
-    auto &fregs = fRegFile_.at(t);
 
     auto rsdata = instr.getRSData(t);
     Word& rddata = instr.getRDData(t);
@@ -331,19 +325,19 @@ void Warp::executing(Pipeline *pipeline) {
         }
         break;
       }
-      pipeline->stall_warp = true;
+      stall_warp = true;
       runOnce = true;
       break;
     case JAL_INST:
       rddata = nextPC;
       nextPC = PC_ + immsrc;  
-      pipeline->stall_warp = true;
+      stall_warp = true;
       runOnce = true;
       break;
     case JALR_INST:
       rddata = nextPC;
       nextPC = rsdata[0] + immsrc;
-      pipeline->stall_warp = true;
+      stall_warp = true;
       runOnce = true;
       break;
     case L_INST: {
@@ -405,7 +399,7 @@ void Warp::executing(Pipeline *pipeline) {
           // ECALL/EBREAK
           tmask_.reset();
           active_ = tmask_.any();
-          pipeline->stall_warp = true; 
+          stall_warp = true;
         }
         break;
       case 1:
@@ -444,7 +438,7 @@ void Warp::executing(Pipeline *pipeline) {
     } break;
     case FENCE:
       D(3, "FENCE");
-      pipeline->stall_warp = true; 
+      stall_warp = true;
       runOnce = true;
       break;
     case (FL | VL):
@@ -828,7 +822,7 @@ void Warp::executing(Pipeline *pipeline) {
           setTmask(i, true);
         }
         active_ = tmask_.any();
-        pipeline->stall_warp = true;
+        stall_warp = true;
         runOnce = true;
       } break;
       case 1: {
@@ -840,7 +834,7 @@ void Warp::executing(Pipeline *pipeline) {
           newWarp.setPC(rsdata[1]);
           newWarp.setTmask(0, true);
         }
-        pipeline->stall_warp = true;
+        stall_warp = true;
         runOnce = true;
       } break;
       case 2: {
@@ -873,7 +867,7 @@ void Warp::executing(Pipeline *pipeline) {
           D(3, "Split: Pushed TM PC: " << std::hex << e.PC << std::dec << "\n");
           DX( for (int i = 0; i < num_threads; ++i) D(3, e.tmask[i] << " "); )
         }
-        pipeline->stall_warp = true;
+        stall_warp = true;
         runOnce = true;
       } break;
       case 3: {
@@ -901,14 +895,14 @@ void Warp::executing(Pipeline *pipeline) {
 
           domStack_.pop();
         }
-        pipeline->stall_warp = true;
+        stall_warp = true;
         runOnce = true;
       } break;
       case 4: {
         // BAR
         active_ = false;
         core_->barrier(rsdata[0], rsdata[1], id_);
-        pipeline->stall_warp = true; 
+        stall_warp = true;
         runOnce = true;       
       } break;
       default:
@@ -1723,23 +1717,6 @@ void Warp::executing(Pipeline *pipeline) {
     default:
       std::abort();
     }
-
-    // TODO: remove it
-    int rdt = instr.getRDType();
-    switch (rdt) {
-    case 1:      
-      if (rdest) {
-        D(3, "[" << std::dec << t << "] Dest Register: r" << rdest << "=0x" << std::hex << std::hex << rddata);
-        iregs[rdest] = rddata;
-      }
-      break;
-    case 2:
-      D(3, "[" << std::dec << t << "] Dest Register: fr" << rdest << "=0x" << std::hex << std::hex << rddata);
-      fregs[rdest] = rddata;
-      break;
-    default:
-      break;
-    }
   }
 
   PC_ += core_->arch().wsize();
@@ -1747,4 +1724,6 @@ void Warp::executing(Pipeline *pipeline) {
     D(3, "Next PC: " << std::hex << nextPC << std::dec);
     PC_ = nextPC;
   }
+
+  return !stall_warp;
 }
