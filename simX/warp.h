@@ -81,13 +81,13 @@ public:
 
   int getNumThreads() const;
 
-  void execute(Pipeline *);
-  void read(Pipeline *) const;
-  void writeback(Pipeline *);
+  bool execute(Instr&); // return true if warp is not stalled
+  bool read(Instr&, const RegMask&, const RegMask&, const RegMask&) const; // return true if required regs not used
+  void writeback(const Instr&);
 
 private:
 
-  void executing(Pipeline *); // now instruction has intermediate source and dest registers
+  bool executing(Instr&); // now instruction has intermediate source and dest registers
   
   Word id_;
   bool active_;

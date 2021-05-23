@@ -66,15 +66,14 @@ void ScheduleModule::clock_schedule(const size_t cycle) {
   bool foundSchedule = false;
   int scheduled_warp = last_schedule_wid_;
 
-  for (size_t wid = 0; wid < core_.warps_.size(); ++wid) {
+  for (int wid = 0; wid < core_.arch().num_warps(); ++wid) {
     // round robin scheduling
-    scheduled_warp = (scheduled_warp + 1) % core_.warps_.size();
-    bool is_active = core_.warps_[scheduled_warp]->active();
+    scheduled_warp = (scheduled_warp + 1) % core_.arch().num_warps();
+    bool is_active = core_.warp(scheduled_warp).active();
     bool stalled = stalled_warps_[scheduled_warp];
     bool in_queue = executing_warps_[scheduled_warp];
     if (is_active && !stalled && !in_queue) {
       executing_warps_[scheduled_warp] = 1;
-      core_.executing_queue_warps_[scheduled_warp] = 1;
       foundSchedule = true;
       break;
     }
@@ -87,8 +86,6 @@ void ScheduleModule::clock_schedule(const size_t cycle) {
     wp_schedule_2_fetch_->write(scheduled_warp, cycle);
     D(3, "Schedule: WID=" << scheduled_warp);
   }
-
-//  assert(core_.inst_in_schedule_.wid == last_schedule_wid_ && "Not equal last schedules WID");
 }
 
 bool ScheduleModule::is_active(const size_t cycle) const {
@@ -105,12 +102,12 @@ void ScheduleModule::reset() {
 
 
 FetchModule::FetchModule(Core& core, PortsStorage& ps)
-        : Module("FETCH_MODULE")
-        , core_(core)
-        , rp_schedule_2_fetch_wid_(ps.RPSchedule2FetchWID_)
-        , wp_fetch_2_schedule_stall_(ps.WPFetch2ScheduleStall_)
-        , rp_decode_2_fetch_stall_(ps.RPDecode2FetchStall)
-        , wp_fetch_2_decode_word_(ps.WPFetch2DecodeWord)
+  : Module("FETCH_MODULE")
+  , core_(core)
+  , rp_schedule_2_fetch_wid_(ps.RPSchedule2FetchWID_)
+  , wp_fetch_2_schedule_stall_(ps.WPFetch2ScheduleStall_)
+  , rp_decode_2_fetch_stall_(ps.RPDecode2FetchStall)
+  , wp_fetch_2_decode_word_(ps.WPFetch2DecodeWord)
 {}
 
 void FetchModule::clock_fetch(const size_t cycle) {
@@ -170,34 +167,6 @@ void DecodeModule::clock_decode(const size_t cycle) {
     wp_decode_2_read_instr_->write(std::make_pair(fetched.first, std::move(instr)), cycle);
     D(3, name() << ", decoded instr for WID: " << fetched.first << " for " << cycle << " cycle");
   }
-
-//  core_.writeback();
-////  if (core_.inst_in_writeback_.stall_warp) {
-////    wp_writeback_2_schedule_unstalled_wid_->write(core_.inst_in_writeback_.wid, cycle);
-////    D(3, "Send unstalled WID: " << core_.inst_in_writeback_.wid << " to schedule");
-////  }
-//  core_.execute();
-////  if (core_.inst_in_execute_.stall_warp) {
-////    wp_execute_2_schedule_stalled_wid_->write(core_.inst_in_execute_.wid, cycle);
-////  }
-//  // wp_execute_2_schedule_executed_wid_->write(core_.inst_in_execute_.wid, cycle);
-//  core_.read();
-//
-//  std::pair<int, Word> fetched;
-//  if (rp_fetch_2_decode_word_->read(&fetched, cycle)) {
-//    core_.inst_in_decode_.valid = true;
-//    core_.inst_in_decode_.wid = fetched.first;
-//    core_.inst_in_decode_.fetched = fetched.second;
-//  } else {
-//    core_.inst_in_decode_.valid = false;
-//  }
-//
-//  core_.decode();
-//
-//  if (core_.inst_in_decode_.stalled) {
-//    wp_decode_2_fetch_stall_->write(true, cycle);
-//    D(3, name() << " is stall, write for fetch module");
-//  }
 }
 
 bool DecodeModule::is_active(const size_t cycle) const {
@@ -250,8 +219,8 @@ void ReadModule::clock_read(const size_t cycle) {
     }
   }
 
-  std::pair<int, std::shared_ptr<Instr>> instr;
-  if (!rp_decode_2_read_instr_->read(&instr, cycle)) {
+  std::pair<int, std::shared_ptr<Instr>> instr_info;
+  if (!rp_decode_2_read_instr_->read(&instr_info, cycle)) {
     D(3, name() << ", not fetched info for " << cycle << " cycle");
     if (stalled_) {
       D(3, name() << ", registers not ready! Stall");
@@ -259,18 +228,17 @@ void ReadModule::clock_read(const size_t cycle) {
     }
     return; // exit
   } else {
-    auto& p = core_.inst_in_read_;
-    p.instr = instr.second;
-    p.wid = instr.first;
+    auto wid = instr_info.first;
+    auto& instr = instr_info.second;
 
-    core_.warp(instr.first).read(&p);
+    auto regs_valid = core_.warp(wid).read(*instr, in_use_iregs_[wid], in_use_fregs_[wid], in_use_vregs_);
 
     // Check, if register for writeback will be used
-    bool in_use_regs = (p.used_iregs & in_use_iregs_[instr.first]) != 0
-                     || (p.used_fregs & in_use_fregs_[instr.first]) != 0
-                     || (p.used_vregs & in_use_vregs_) != 0;
+//    bool in_use_regs = (p.used_iregs & in_use_iregs_[instr.first]) != 0
+//                     || (p.used_fregs & in_use_fregs_[instr.first]) != 0
+//                     || (p.used_vregs & in_use_vregs_) != 0;
 
-    if (in_use_regs) {
+    if (!regs_valid) {
       D(3, name() << ", registers not ready! Stall");
       stalled_ = true;
       wp_read_2_decode_stall_->write(true, cycle);
@@ -279,53 +247,24 @@ void ReadModule::clock_read(const size_t cycle) {
 
     stalled_ = false;
 
-    switch (p.instr->getRDType()) {
+    switch (instr->getRDType()) {
       case RegTypes::INTEGER:
-        if (p.instr->getRDest())
-          in_use_iregs_[p.wid][p.instr->getRDest()] = 1;
+        if (instr->getRDest())
+          in_use_iregs_[wid][instr->getRDest()] = 1;
         break;
       case RegTypes::FLOAT:
-        in_use_fregs_[p.wid][p.instr->getRDest()] = 1;
+        in_use_fregs_[wid][instr->getRDest()] = 1;
         break;
       case RegTypes::VECTOR:
-        in_use_vregs_[p.instr->getRDest()] = 1;
+        in_use_vregs_[instr->getRDest()] = 1;
         break;
       default:
         break;
     }
 
-    wp_read_2_execute_instr_->write(std::make_pair(instr.first, instr.second), cycle);
+    wp_read_2_execute_instr_->write(std::make_pair(wid, instr), cycle);
     D(3, name() << " send instr to execute");
   }
-
-//  core_.writeback();
-////  if (core_.inst_in_writeback_.stall_warp) {
-////    wp_writeback_2_schedule_unstalled_wid_->write(core_.inst_in_writeback_.wid, cycle);
-////    D(3, "Send unstalled WID: " << core_.inst_in_writeback_.wid << " to schedule");
-////  }
-//  core_.execute();
-////  if (core_.inst_in_execute_.stall_warp) {
-////    wp_execute_2_schedule_stalled_wid_->write(core_.inst_in_execute_.wid, cycle);
-////  }
-//  // wp_execute_2_schedule_executed_wid_->write(core_.inst_in_execute_.wid, cycle);
-//
-//  std::pair<int, std::shared_ptr<Instr>> instr;
-//  if (rp_decode_2_read_instr_->read(&instr, cycle)) {
-//    D(3, name() << ", get instr from decode module");
-//    assert(instr.second && "Instr is invalid");
-//    core_.inst_in_read_.valid = true;
-//    core_.inst_in_read_.wid = instr.first;
-//    core_.inst_in_read_.instr = instr.second;
-//  } else {
-//    core_.inst_in_read_.valid = false;
-//  }
-//
-//  core_.read();
-//
-//  if (core_.inst_in_read_.stalled) {
-//    wp_read_2_decode_stall_->write(true, cycle);
-//    D(3, name() << " is stall, write for decode module");
-//  }
 }
 
 bool ReadModule::is_active(const size_t cycle) const {
@@ -360,19 +299,16 @@ void ExecuteModule::clock_execute(const size_t cycle) {
     }
   }
 
-  std::pair<int, std::shared_ptr<Instr>> instr;
-  if (!rp_read_2_execute_instr_->read(&instr, cycle)) {
+  std::pair<int, std::shared_ptr<Instr>> instr_info;
+  if (!rp_read_2_execute_instr_->read(&instr_info, cycle)) {
     D(3, name() << ", not fetched info for " << cycle << " cycle");
     return; // exit
   } else {
-    auto wid = instr.first;
-
-    auto& p = core_.inst_in_execute_;
-    p.wid = wid;
-    p.instr = instr.second;
+    auto wid = instr_info.first;
+    auto& instr = instr_info.second;
 
     auto active_threads_b = core_.warp(wid).getActiveThreads();
-    core_.warp(wid).execute(&p);
+    auto stall_warp = !core_.warp(wid).execute(*instr);
     auto active_threads_a = core_.warp(wid).getActiveThreads();
 
     wp_execute_2_schedule_executed_wid_->write(wid, cycle);
@@ -383,35 +319,12 @@ void ExecuteModule::clock_execute(const size_t cycle) {
       D(3, "** warp #" << wid << " active threads changed from " << active_threads_b << " to " << active_threads_a);
     }
 
-    if (p.stall_warp) {
+    if (stall_warp) {
       wp_execute_2_schedule_stalled_wid_->write(wid, cycle);
     }
 
-    wp_execute_2_writeback_result_->write(WritebackInfo(wid, p.instr, p.stall_warp), cycle);
+    wp_execute_2_writeback_result_->write(WritebackInfo(wid, instr, stall_warp), cycle);
   }
-//  core_.writeback();
-////  if (core_.inst_in_writeback_.stall_warp) {
-////    wp_writeback_2_schedule_unstalled_wid_->write(core_.inst_in_writeback_.wid, cycle);
-////    D(3, "Send unstalled WID: " << core_.inst_in_writeback_.wid << " to schedule");
-////  }
-//
-//  std::pair<int, std::shared_ptr<Instr>> instr;
-//  if (rp_read_2_execute_instr_->read(&instr, cycle)) {
-//    D(3, name() << ", get instr from decode module");
-//    assert(instr.second && "Instr is invalid");
-//    core_.inst_in_execute_.valid = true;
-//    core_.inst_in_execute_.wid = instr.first;
-//    core_.inst_in_execute_.instr = instr.second;
-//  } else {
-//    core_.inst_in_execute_.valid = false;
-//  }
-//
-//  core_.execute();
-//
-//  if (core_.inst_in_read_.stalled) {
-//    wp_execute_2_read_stall_->write(true, cycle);
-//    D(3, name() << " is stall, write for decode module");
-//  }
 }
 
 bool ExecuteModule::is_active(const size_t cycle) const {
@@ -437,43 +350,17 @@ void WritebaskModule::clock_writeback(const size_t cycle) {
     D(3, name() << ", not fetched info for " << cycle << " cycle");
     return; // exit
   } else {
-    auto& p = core_.inst_in_writeback_;
-    p.wid = info.wid;
-    p.instr = info.instr;
 
-    core_.warp(p.wid).writeback(&p);
+    core_.warp(info.wid).writeback(*info.instr);
 
     wp_writeback_2_read_reg_->write(ReleasedMemRegInfo(
-          p.wid, p.instr->getRDest(), p.instr->getRDType()
+          info.wid, info.instr->getRDest(), info.instr->getRDType()
     ), cycle);
 
     if (info.stall_warp) {
       wp_writeback_2_schedule_unstalled_wid_->write(info.wid, cycle);
     }
   }
-//  core_.writeback();
-////  if (core_.inst_in_writeback_.stall_warp) {
-////    wp_writeback_2_schedule_unstalled_wid_->write(core_.inst_in_writeback_.wid, cycle);
-////    D(3, "Send unstalled WID: " << core_.inst_in_writeback_.wid << " to schedule");
-////  }
-//
-//  std::pair<int, std::shared_ptr<Instr>> instr;
-//  if (rp_read_2_execute_instr_->read(&instr, cycle)) {
-//    D(3, name() << ", get instr from decode module");
-//    assert(instr.second && "Instr is invalid");
-//    core_.inst_in_execute_.valid = true;
-//    core_.inst_in_execute_.wid = instr.first;
-//    core_.inst_in_execute_.instr = instr.second;
-//  } else {
-//    core_.inst_in_execute_.valid = false;
-//  }
-//
-//  core_.execute();
-//
-//  if (core_.inst_in_read_.stalled) {
-//    wp_execute_2_read_stall_->write(true, cycle);
-//    D(3, name() << " is stall, write for decode module");
-//  }
 }
 
 bool WritebaskModule::is_active(const size_t cycle) const {

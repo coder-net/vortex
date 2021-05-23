@@ -32,9 +32,6 @@ Core::Core(const ArchDef &arch, Decoder &decoder, MemoryUnit &mem, Word id)
     , read_module_(*this, ports_)
     , execute_module_(*this, ports_)
     , writeback_module_(*this, ports_) {
-  in_use_iregs_.resize(arch.num_warps(), 0);
-  in_use_fregs_.resize(arch.num_warps(), 0);
-  in_use_vregs_.reset();
 
   csrs_.resize(arch_.num_csrs(), 0);
 
@@ -51,14 +48,6 @@ Core::Core(const ArchDef &arch, Decoder &decoder, MemoryUnit &mem, Word id)
 }
 
 void Core::clear() {
-  for (int w = 0; w < arch_.num_warps(); ++w) {    
-    in_use_iregs_[w].reset();
-    in_use_fregs_[w].reset();    
-  }
-  stalled_warps_.reset();
-
-  in_use_vregs_.reset();
-  
   for (auto& csr : csrs_) {
     csr = 0;
   }
@@ -73,21 +62,13 @@ void Core::clear() {
   
   for (auto warp : warps_) {
     warp->clear();
-  }  
-
-  inst_in_schedule_.clear();
-  inst_in_fetch_.clear();
-  inst_in_decode_.clear();
-  inst_in_read_.clear();
-  inst_in_execute_.clear();
-  inst_in_writeback_.clear();
+  }
 
   steps_  = 0;
   insts_  = 0;
   loads_  = 0;
   stores_ = 0;
 
-  inst_in_schedule_.valid = true;
   warps_[0]->setTmask(0, true);
 }
 
@@ -102,181 +83,6 @@ void Core::step() {
   writeback_module_.clock_writeback(steps_);
 
   steps_++;
-//  if (steps_ > 15) {
-//    throw std::invalid_argument("steps > 5");
-//  }
-}
-
-void Core::step_old() {
-  D(3, "###########################################################");
-
-  D(3, std::dec << "Core" << id_ << ": cycle: " << steps_);
-
-  DPH(3, "stalled warps:");
-  for (int i = 0; i < arch_.num_warps(); i++) {
-    DPN(3, " " << stalled_warps_[i]);
-  }
-  DPN(3, "\n");
-
-  this->writeback();
-  this->execute();
-  this->read();
-  this->decode();
-  this->fetch();
-  // this->schedule();
-
-  DPN(3, std::flush);
-}
-
-void Core::schedule() {
-  if (!inst_in_schedule_.enter(&inst_in_fetch_))
-    return;
-
-  bool foundSchedule = false;
-  int scheduled_warp = inst_in_schedule_.wid;
-
-  for (size_t wid = 0; wid < warps_.size(); ++wid) {
-    // round robin scheduling
-    scheduled_warp = (scheduled_warp + 1) % warps_.size();
-    bool is_active = warps_[scheduled_warp]->active();
-    bool stalled = stalled_warps_[scheduled_warp];
-    bool in_queue = executing_queue_warps_[scheduled_warp];
-    if (is_active && !stalled && !in_queue) {
-      executing_queue_warps_[scheduled_warp] = 1;
-      foundSchedule = true;
-      break;
-    }
-  }
-
-  if (!foundSchedule) {
-    D(3, "Schedule warp not found");
-    return;
-  }
-  D(3, "Schedule: wid=" << scheduled_warp);
-  inst_in_schedule_.wid = scheduled_warp;
-
-  // copy to next
-  inst_in_schedule_.next(&inst_in_fetch_);
-}
-
-void Core::fetch() {
-  if (!inst_in_fetch_.enter(&inst_in_decode_))
-    return;
-
-  inst_in_fetch_.fetched = this->icache_fetch(warp(inst_in_fetch_.wid).getPC());
-
-  // copy to next
-  inst_in_fetch_.next(&inst_in_decode_);
-}
-
-void Core::decode() {
-  if (!inst_in_decode_.enter(&inst_in_read_))
-    return;
-
-  inst_in_decode_.instr = decoder().decode(inst_in_decode_.fetched);
-
-  // copy to next
-  inst_in_decode_.next(&inst_in_read_);
-}
-
-void Core::read() {
-  if (!inst_in_read_.enter(&inst_in_execute_))
-    return;
-
-  warp(inst_in_read_.wid).read(&inst_in_read_);
-
-  // Check, if register for writeback will be used
-  bool in_use_regs = (inst_in_read_.used_iregs & in_use_iregs_[inst_in_read_.wid]) != 0 
-                  || (inst_in_read_.used_fregs & in_use_fregs_[inst_in_read_.wid]) != 0 
-                  || (inst_in_read_.used_vregs & in_use_vregs_) != 0;
-  
-  if (in_use_regs) {      
-    D(3, "Read: registers not ready!");
-    inst_in_read_.stalled = true;
-    return;
-  } 
-
-  switch (inst_in_read_.instr->getRDType()) {
-  case RegTypes::INTEGER:
-    if (inst_in_read_.instr->getRDest())
-      in_use_iregs_[inst_in_read_.wid][inst_in_read_.instr->getRDest()] = 1;
-    break;
-  case RegTypes::FLOAT:
-    in_use_fregs_[inst_in_read_.wid][inst_in_read_.instr->getRDest()] = 1;
-    break;
-  case RegTypes::VECTOR:
-    in_use_vregs_[inst_in_read_.instr->getRDest()] = 1;
-    break;
-  default:  
-    break;
-  }
-
-  // copy to next
-  inst_in_read_.next(&inst_in_execute_);
-}
-
-void Core::execute() {  
-  if (!inst_in_execute_.enter(&inst_in_writeback_))
-    return;
-
-  const auto wid = inst_in_execute_.wid;
-  auto active_threads_b = warp(wid).getActiveThreads();
-  warp(wid).execute(&inst_in_execute_);
-  auto active_threads_a = warp(wid).getActiveThreads();
-
-  executing_queue_warps_[wid] = 0;
-  ports_.WPExecute2ScheduleExecutedWID->write(wid, static_cast<size_t>(num_steps()));
-
-  insts_ += active_threads_b;
-  if (active_threads_b != active_threads_a) {
-    D(3, "** warp #" << wid << " active threads changed from " << active_threads_b << " to " << active_threads_a);
-  }
-
-  if (inst_in_execute_.stall_warp) {
-    D(3, "** warp #" << wid << " stalled");
-    stalled_warps_[wid] = true;
-    ports_.WPExecute2ScheduleStalledWID->write(wid, static_cast<size_t>(num_steps()));
-  }
-
-  D(4, inst_in_execute_);
-
-  // copy to next
-  inst_in_execute_.next(&inst_in_writeback_);
-}
-
-void Core::writeback() {
-  if (!inst_in_writeback_.enter(NULL))
-    return;
-
-  warp(inst_in_writeback_.wid).writeback(&inst_in_writeback_);
-
-  ports_.WPWriteback2ReadReg->write(ReleasedMemRegInfo(
-          inst_in_writeback_.wid,
-          inst_in_writeback_.instr->getRDest(),
-          inst_in_writeback_.instr->getRDType()
-          ), static_cast<size_t>(num_steps()));
-
-//  switch (inst_in_writeback_.instr->getRDType()) {
-//  case RegTypes::INTEGER:
-//    in_use_iregs_[inst_in_writeback_.wid][inst_in_writeback_.instr->getRDest()] = 0;
-//    break;
-//  case RegTypes::FLOAT:
-//    in_use_fregs_[inst_in_writeback_.wid][inst_in_writeback_.instr->getRDest()] = 0;
-//    break;
-//  case RegTypes::VECTOR:
-//    in_use_vregs_[inst_in_writeback_.instr->getRDest()] = 0;
-//    break;
-//  default:
-//    break;
-//  }
-
-  if (inst_in_writeback_.stall_warp) {
-    stalled_warps_[inst_in_writeback_.wid] = 0;
-    ports_.WPWriteback2ScheduleUnstalledWID->write(inst_in_writeback_.wid, static_cast<size_t>(num_steps()));
-  }
-
-  // copy to next
-  inst_in_writeback_.next(NULL);
 }
 
 Word Core::get_csr(Addr addr, int tid, int wid) {

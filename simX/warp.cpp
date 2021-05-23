@@ -32,12 +32,12 @@ int Warp::getNumThreads() const {
   return core_->arch().num_threads();
 }
 
-void Warp::execute(Pipeline *pipeline) {
+bool Warp::execute(Instr& instr) {
   assert(tmask_.any() && "Warp::execute");
 
   D(3, "Step: wid=" << id_ << ", PC=0x" << std::hex << PC_);
 
-  this->executing(pipeline);
+  auto result = this->executing(instr);
 
   // At Debug Level 3, print debug info after each instruction.
   D(4, "Register state:");
@@ -53,19 +53,21 @@ void Warp::execute(Pipeline *pipeline) {
   for (int i = 0; i < core_->arch().num_threads(); ++i)
     DPN(3, " " << tmask_[i]);
   DPN(3, "\n");
+
+  return result;
 }
 
-void Warp::read(Pipeline* pipeline) const {
-  assert(pipeline->instr &&"Not instruction for read stage");
-
-  // Update pipeline
-  pipeline->valid = true;
-  pipeline->PC = getPC();
-  pipeline->used_iregs.reset();
-  pipeline->used_fregs.reset();
-  pipeline->used_vregs.reset();
-
-  auto& instr = *pipeline->instr;
+bool Warp::read(Instr& instr, const RegMask& ireg_used, const RegMask& freg_used, const RegMask& vreg_used) const {
+//  assert(pipeline->instr &&"Not instruction for read stage");
+//
+//  // Update pipeline
+//  pipeline->valid = true;
+//  pipeline->PC = getPC();
+//  pipeline->used_iregs.reset();
+//  pipeline->used_fregs.reset();
+//  pipeline->used_vregs.reset();
+//
+//  auto& instr = *pipeline->instr;
   for (int tid = 0; tid < getNumThreads(); ++tid) {
     // copy src registers
     for (int i = 0; i < instr.getNRSrc(); ++i) {
@@ -74,12 +76,18 @@ void Warp::read(Pipeline* pipeline) const {
       if (i) DPN(3, ", ");
       switch (rst) {
         case RegTypes::INTEGER:
-          pipeline->used_iregs[rs] = 1;
+          if (ireg_used.test(rs)) {
+            return false;
+          }
+          // pipeline->used_iregs[rs] = 1;
           instr.setRSData(iRegFile_.at(tid).at(rs), tid, i);
           DPN(3, "r" << std::dec << rs << "=0x" << std::hex << iRegFile_.at(tid).at(rs));
           break;
         case RegTypes::FLOAT:
-          pipeline->used_fregs[rs] = 1;
+          if (freg_used.test(rs)) {
+            return false;
+          }
+          // pipeline->used_fregs[rs] = 1;
           instr.setRSData(fRegFile_.at(tid).at(rs), tid, i);
           DPN(3, "fr" << std::dec << rs << "=0x" << std::hex << fRegFile_.at(tid).at(rs));
           break;
@@ -92,11 +100,17 @@ void Warp::read(Pipeline* pipeline) const {
     const int rd = instr.getRDest();
     switch (rdt) {
       case RegTypes::INTEGER:
-        pipeline->used_iregs[rd] = 1;
+        if (ireg_used.test(rd)) {
+          return false;
+        }
+        // pipeline->used_iregs[rd] = 1;
         instr.setRDData(iRegFile_.at(tid).at(rd), tid);
         break;
       case RegTypes::FLOAT:
-        pipeline->used_fregs[rd] = 1;
+        if (freg_used.test(rd)) {
+          return false;
+        }
+        // pipeline->used_fregs[rd] = 1;
         instr.setRDData(fRegFile_.at(tid).at(rd), tid);
         break;
       default:
@@ -108,29 +122,33 @@ void Warp::read(Pipeline* pipeline) const {
   for (int i = 0; i < instr.getNRSrc(); ++i) {
     if (instr.getRSType(i) == RegTypes::VECTOR) {
       const int rs = instr.getRSrc(i);
-      pipeline->used_vregs[rs] = 1;
+      if (vreg_used.test(rs)) {
+        return false;
+      }
+      // pipeline->used_vregs[rs] = 1;
       instr.setVRSData(vRegFile_.at(rs), i);
     }
   }
   // copy dst registers
   if (instr.getRDType() == RegTypes::VECTOR) {
     const int rd = instr.getRDest();
-    pipeline->used_vregs[rd] = 1;
+    if (vreg_used.test(rd)) {
+      return false;
+    }
+    // pipeline->used_vregs[rd] = 1;
     instr.setVRDData(vRegFile_.at(rd));
   }
+  return true;
 }
 
-void Warp::writeback(Pipeline* pipeline) {
-  assert(pipeline->instr && "Not instruction for writeback stage");
-
-  auto& instr = *pipeline->instr;
+void Warp::writeback(const Instr& instr) {
   int rdest  = instr.getRDest();
   int rdt = instr.getRDType();
 
   for (int tid = 0; tid < getNumThreads(); ++tid) {
-    if (!instr.isThreadUsed(tid)) {
-      continue;
-    }
+//    if (!instr.isThreadUsed(tid)) {
+//      continue;
+//    }
     switch (rdt) {
       case RegTypes::INTEGER:
         if (rdest) {

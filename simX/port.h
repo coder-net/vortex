@@ -207,7 +207,7 @@ struct PortsStorage {
 //  static constexpr char* RPFetch2ScheduleStall = "RP_FETCH_2_SCHEDULE_STALL";
 
   static constexpr size_t StallLatency = 1;
-  static constexpr size_t TestLatency = 1;
+  static constexpr size_t TestLatency = 2;
 
   PortsStorage()
     // schedule -> fetch

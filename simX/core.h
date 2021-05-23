@@ -31,8 +31,6 @@ public:
 
   void step();
 
-  void step_old();
-
   void printStats() const;
 
   Word id() const {
@@ -76,20 +74,6 @@ public:
   void dcache_write(Addr, Word, Size);
 
 // private:
-
-  void schedule();
-  void fetch();
-  void decode();
-  void read();
-  void execute();
-  void writeback();
-  
-  
-  std::vector<RegMask> in_use_iregs_;
-  std::vector<RegMask> in_use_fregs_;
-  RegMask in_use_vregs_;
-  WarpMask stalled_warps_;
-  WarpMask executing_queue_warps_;
   std::vector<std::shared_ptr<Warp>> warps_;  
   std::vector<WarpMask> barriers_;  
   std::vector<Word> csrs_;
