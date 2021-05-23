@@ -188,12 +188,12 @@ void Core::dcache_write(Addr addr, Word data, Size size) {
 }
 
 bool Core::running() const {
-  return schedule_module_.is_active((size_t)num_cycles())
-      || fetch_module_.is_active((size_t)num_cycles())
-      || decode_module_.is_active((size_t)num_cycles())
-      || read_module_.is_active((size_t)num_cycles())
-      || execute_module_.is_active((size_t)num_cycles())
-      || writeback_module_.is_active((size_t)num_cycles());
+  return schedule_module_.is_active(num_cycles())
+      || fetch_module_.is_active(num_cycles())
+      || decode_module_.is_active(num_cycles())
+      || read_module_.is_active(num_cycles())
+      || execute_module_.is_active(num_cycles())
+      || writeback_module_.is_active(num_cycles());
 }
 
 void Core::printStats() const {

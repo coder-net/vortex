@@ -19,7 +19,7 @@ public:
   const std::string& name() const;
   std::string debug_info() const;
 
-  virtual bool is_active(const size_t cycle) const = 0;
+  virtual bool is_active(const uint64_t cycle) const = 0;
 
 
 private:
@@ -32,8 +32,8 @@ public:
 
   ScheduleModule(Core& core, PortsStorage& ps);
 
-  void clock_schedule(const size_t cycle);
-  bool is_active(const size_t cycle) const override;
+  void clock_schedule(const uint64_t cycle);
+  bool is_active(const uint64_t cycle) const override;
   void reset();
 
 private:
@@ -54,8 +54,8 @@ class FetchModule : Module {
 public:
   FetchModule(Core& core, PortsStorage& ps);
 
-  void clock_fetch(const size_t cycle);
-  bool is_active(const size_t cycle) const override;
+  void clock_fetch(const uint64_t cycle);
+  bool is_active(const uint64_t cycle) const override;
 
 private:
   Core& core_;
@@ -70,8 +70,8 @@ class DecodeModule : Module {
 public:
   DecodeModule(Core& core, PortsStorage& ps);
 
-  void clock_decode(const size_t cycle);
-  bool is_active(const size_t cycle) const override;
+  void clock_decode(const uint64_t cycle);
+  bool is_active(const uint64_t cycle) const override;
 
 private:
   Core& core_;
@@ -86,8 +86,8 @@ class ReadModule : Module {
 public:
   ReadModule(Core& core, PortsStorage& ps);
 
-  void clock_read(const size_t cycle);
-  bool is_active(const size_t cycle) const override;
+  void clock_read(const uint64_t cycle);
+  bool is_active(const uint64_t cycle) const override;
 
 private:
   Core& core_;
@@ -108,8 +108,8 @@ class ExecuteModule : Module {
 public:
   ExecuteModule(Core& core, PortsStorage& ps);
 
-  void clock_execute(const size_t cycle);
-  bool is_active(const size_t cycle) const override;
+  void clock_execute(const uint64_t cycle);
+  bool is_active(const uint64_t cycle) const override;
 
 private:
   Core& core_;
@@ -127,8 +127,8 @@ class WritebaskModule : Module {
 public:
   WritebaskModule(Core& core, PortsStorage& ps);
 
-  void clock_writeback(const size_t cycle);
-  bool is_active(const size_t cycle) const override;
+  void clock_writeback(const uint64_t cycle);
+  bool is_active(const uint64_t cycle) const override;
 
 private:
   Core& core_;

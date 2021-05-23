@@ -34,7 +34,7 @@ ScheduleModule::ScheduleModule(Core& core, PortsStorage& ps)
   reset();
 }
 
-void ScheduleModule::clock_schedule(const size_t cycle) {
+void ScheduleModule::clock_schedule(const uint64_t cycle) {
   D(3, debug_info());
 
   // check module stalling
@@ -88,7 +88,7 @@ void ScheduleModule::clock_schedule(const size_t cycle) {
   }
 }
 
-bool ScheduleModule::is_active(const size_t cycle) const {
+bool ScheduleModule::is_active(const uint64_t cycle) const {
   return !rp_execute_2_schedule_executed_wid_->is_empty(cycle)
       || !rp_execute_2_schedule_stalled_wid_->is_empty(cycle)
       || !rp_writeback_2_schedule_unstalled_wid_->is_empty(cycle)
@@ -110,7 +110,7 @@ FetchModule::FetchModule(Core& core, PortsStorage& ps)
   , wp_fetch_2_decode_word_(ps.WPFetch2DecodeWord)
 {}
 
-void FetchModule::clock_fetch(const size_t cycle) {
+void FetchModule::clock_fetch(const uint64_t cycle) {
   D(3, debug_info());
 
   bool is_stall = false;
@@ -132,7 +132,7 @@ void FetchModule::clock_fetch(const size_t cycle) {
   }
 }
 
-bool FetchModule::is_active(const size_t cycle) const {
+bool FetchModule::is_active(const uint64_t cycle) const {
   return !rp_schedule_2_fetch_wid_->is_empty(cycle)
       || !rp_decode_2_fetch_stall_->is_empty(cycle);
 }
@@ -146,7 +146,7 @@ DecodeModule::DecodeModule(Core &core, PortsStorage &ps)
   , wp_decode_2_read_instr_(ps.WPDecode2ReadInstr)
 {}
 
-void DecodeModule::clock_decode(const size_t cycle) {
+void DecodeModule::clock_decode(const uint64_t cycle) {
   D(3, debug_info());
 
   bool is_stall = false;
@@ -169,7 +169,7 @@ void DecodeModule::clock_decode(const size_t cycle) {
   }
 }
 
-bool DecodeModule::is_active(const size_t cycle) const {
+bool DecodeModule::is_active(const uint64_t cycle) const {
   return !rp_fetch_2_decode_word_->is_empty(cycle)
       || !rp_read_2_decode_stall_->is_empty(cycle);
 }
@@ -189,7 +189,7 @@ ReadModule::ReadModule(Core &core, PortsStorage &ps)
   in_use_vregs_.reset();
 }
 
-void ReadModule::clock_read(const size_t cycle) {
+void ReadModule::clock_read(const uint64_t cycle) {
   D(3, debug_info());
   {
     bool is_stall = false;
@@ -232,12 +232,6 @@ void ReadModule::clock_read(const size_t cycle) {
     auto& instr = instr_info.second;
 
     auto regs_valid = core_.warp(wid).read(*instr, in_use_iregs_[wid], in_use_fregs_[wid], in_use_vregs_);
-
-    // Check, if register for writeback will be used
-//    bool in_use_regs = (p.used_iregs & in_use_iregs_[instr.first]) != 0
-//                     || (p.used_fregs & in_use_fregs_[instr.first]) != 0
-//                     || (p.used_vregs & in_use_vregs_) != 0;
-
     if (!regs_valid) {
       D(3, name() << ", registers not ready! Stall");
       stalled_ = true;
@@ -267,7 +261,7 @@ void ReadModule::clock_read(const size_t cycle) {
   }
 }
 
-bool ReadModule::is_active(const size_t cycle) const {
+bool ReadModule::is_active(const uint64_t cycle) const {
   return !rp_decode_2_read_instr_->is_empty(cycle)
       || !rp_writeback_2_read_reg_->is_empty(cycle)
       || !rp_execute_2_read_stall_->is_empty(cycle)
@@ -286,7 +280,7 @@ ExecuteModule::ExecuteModule(Core &core, PortsStorage &ps)
   , wp_execute_2_schedule_stalled_wid_(ps.WPExecute2ScheduleStalledWID)
 {}
 
-void ExecuteModule::clock_execute(const size_t cycle) {
+void ExecuteModule::clock_execute(const uint64_t cycle) {
   D(3, debug_info());
 
   {
@@ -327,7 +321,7 @@ void ExecuteModule::clock_execute(const size_t cycle) {
   }
 }
 
-bool ExecuteModule::is_active(const size_t cycle) const {
+bool ExecuteModule::is_active(const uint64_t cycle) const {
   return !rp_read_2_execute_instr_->is_empty(cycle)
       || !rp_writeback_2_execute_stall_->is_empty(cycle);
 }
@@ -342,7 +336,7 @@ WritebaskModule::WritebaskModule(Core &core, PortsStorage &ps)
   , wp_writeback_2_read_reg_(ps.WPWriteback2ReadReg)
 {}
 
-void WritebaskModule::clock_writeback(const size_t cycle) {
+void WritebaskModule::clock_writeback(const uint64_t cycle) {
   D(3, debug_info());
 
   WritebackInfo info;
@@ -363,7 +357,7 @@ void WritebaskModule::clock_writeback(const size_t cycle) {
   }
 }
 
-bool WritebaskModule::is_active(const size_t cycle) const {
+bool WritebaskModule::is_active(const uint64_t cycle) const {
   return !rp_execute_2_writeback_result_->is_empty(cycle);
 }
 

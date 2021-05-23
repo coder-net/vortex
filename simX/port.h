@@ -46,7 +46,7 @@ protected:
     return last_cycle_;
   }
 
-  void update_last_cycle(const size_t cycle) {
+  void update_last_cycle(const uint64_t cycle) {
     assert(last_cycle_ <= cycle && "New cycle < last cycle");
     last_cycle_ = cycle;
   }
@@ -66,22 +66,22 @@ public:
   ReadPort(const std::string& name, const size_t latency) : Port(name, latency)
   {}
 
-  bool is_ready(const size_t cycle) {
+  bool is_ready(const uint64_t cycle) {
     cleanup_stale_info(cycle);
     return !state_queue_.empty() && state_queue_.front().cycle == cycle;
   }
 
-  bool is_empty(const size_t cycle) {
+  bool is_empty(const uint64_t cycle) {
     cleanup_stale_info(cycle);
     return state_queue_.empty();
   }
 
-  T read(const size_t cycle) {
+  T read(const uint64_t cycle) {
     assert(is_ready(cycle) && "ReadPort does not ready yet");
     return pop_front();
   }
 
-  bool read(T* value, const size_t cycle) {
+  bool read(T* value, const uint64_t cycle) {
     if (!is_ready(cycle)) {
       return false;
     }
@@ -92,7 +92,7 @@ public:
 protected:
   friend class WritePort<T>;
 
-  void cleanup_stale_info(const size_t cycle) {
+  void cleanup_stale_info(const uint64_t cycle) {
     update_last_cycle(cycle);
     while (!state_queue_.empty() && state_queue_.front().cycle < cycle) {
       state_queue_.pop();
@@ -105,7 +105,7 @@ protected:
     return p;
   }
 
-  void emplace_back(T&& value, const size_t cycle) {
+  void emplace_back(T&& value, const uint64_t cycle) {
     auto cycle_to_read = cycle + latency();
     cleanup_stale_info(cycle);
     state_queue_.push(State<T>(std::move(value), cycle_to_read));
@@ -122,11 +122,11 @@ public:
   WritePort(const std::string& name, const size_t latency) : Port(name, latency)
   {}
 
-  void write(T&& value, const size_t cycle) {
+  void write(T&& value, const uint64_t cycle) {
     basic_write(std::forward<T>(value), cycle);
   }
 
-  void write(const T& value, const size_t cycle) {
+  void write(const T& value, const uint64_t cycle) {
     basic_write(T(value), cycle);
   }
 
@@ -137,7 +137,7 @@ public:
 protected:
   friend class ReadPort<T>;
 
-  void basic_write(T&& value, const size_t cycle) {
+  void basic_write(T&& value, const uint64_t cycle) {
     assert(!destinations_.empty() && "Port writer destinations is empty");
     for (size_t idx = 1; idx < destinations_.size(); ++idx) {
       destinations_[idx]->emplace_back(T(value), cycle);
@@ -162,17 +162,6 @@ std::shared_ptr<WritePort<T>> make_write_port(const std::string& name, const siz
 }
 
 
-template <typename T>
-struct WarpInfo {
-  WarpInfo(const size_t wid, T&& i)
-          : WID(wid)
-          , info(i)
-  {}
-
-  size_t WID;
-  T info;
-};
-
 struct ReleasedMemRegInfo {
   ReleasedMemRegInfo()
   {}
@@ -190,7 +179,7 @@ struct ReleasedMemRegInfo {
 struct WritebackInfo {
   WritebackInfo()
   {}
-  WritebackInfo(const size_t w, const std::shared_ptr<Instr>& i, const bool sw)
+  WritebackInfo(const int w, const std::shared_ptr<Instr>& i, const bool sw)
     : wid(w)
     , instr(i)
     , stall_warp(sw)
