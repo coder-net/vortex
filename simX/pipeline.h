@@ -21,6 +21,7 @@ public:
 
   //--
   bool      valid;
+  bool      stopped;
 
   //--
   bool      stalled;
@@ -31,11 +32,13 @@ public:
   Word      PC;
 
   //--
-  int       rdest_type;
-  int       rdest;
   RegMask   used_iregs;
   RegMask   used_fregs;
   RegMask   used_vregs;
+
+  //--
+  Word      fetched;
+  std::shared_ptr<Instr> instr;
 
 private:
 

@@ -3,7 +3,7 @@ PROJECT = libvortex.so
 
 SIMX_DIR = ../../simX
 
-CXXFLAGS += -std=c++11 -O2 -Wall -Wextra -Wfatal-errors 
+CXXFLAGS += -std=c++11 -O2 -Wall -Wextra -Wfatal-errors
 #CXXFLAGS += -std=c++11 -g -O0 -Wall -Wextra -Wfatal-errors
 
 CXXFLAGS += -fPIC -Wno-aligned-new -Wno-maybe-uninitialized
@@ -21,12 +21,14 @@ LDFLAGS += -shared -pthread
 #LDFLAGS += -dynamiclib -pthread
 
 SRCS = vortex.cpp ../common/vx_utils.cpp 
-SRCS += $(SIMX_DIR)/util.cpp $(SIMX_DIR)/args.cpp $(SIMX_DIR)/mem.cpp $(SIMX_DIR)/pipeline.cpp $(SIMX_DIR)/warp.cpp $(SIMX_DIR)/core.cpp $(SIMX_DIR)/decode.cpp $(SIMX_DIR)/execute.cpp
+SRCS += $(SIMX_DIR)/util.cpp $(SIMX_DIR)/args.cpp $(SIMX_DIR)/mem.cpp $(SIMX_DIR)/pipeline.cpp $(SIMX_DIR)/warp.cpp $(SIMX_DIR)/core.cpp $(SIMX_DIR)/decode.cpp $(SIMX_DIR)/execute.cpp $(SIMX_DIR)/port.cpp $(SIMX_DIR)/module.cpp
 
 # Debugigng
 ifdef DEBUG
+CXXFLAGS += $(DBG_FLAGS) -DUSE_DEBUG=3
 	CXXFLAGS += $(DBG_FLAGS) -DUSE_DEBUG=3
-else    
+
+else
 	CXXFLAGS += -DNDEBUG
 endif
 

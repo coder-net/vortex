@@ -24,6 +24,7 @@ Pipeline::Pipeline(const char* name)
 
 void Pipeline::clear() {
   valid = false;
+  stopped = false;
   stalled = false;
   stall_warp = false;
   wid = 0;
@@ -39,25 +40,28 @@ bool Pipeline::enter(Pipeline *drain) {
       this->stalled = true;
       return false;
     }
+    drain->stopped = true;
     drain->valid = false;
   }
   this->stalled = false;
-  if (!this->valid)
+  if (!this->valid) {
     return false;
+  }
   return true;
 }
 
 void Pipeline::next(Pipeline *drain) {
   if (drain) {
     drain->valid = this->valid;
+    drain->stopped = this->stopped;
     drain->stalled = this->stalled;
     drain->stall_warp = this->stall_warp;
     drain->wid = this->wid;
     drain->PC = this->PC;
-    drain->rdest = this->rdest;
-    drain->rdest_type = this->rdest_type;
     drain->used_iregs = this->used_iregs;
     drain->used_fregs = this->used_fregs;
     drain->used_vregs = this->used_vregs;
+    drain->instr = this->instr;
+    drain->fetched = this->fetched;
   }
 }

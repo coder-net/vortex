@@ -4,6 +4,8 @@
 #include <math.h>
 #include <assert.h>
 
+#include <sstream>
+
 #include "util.h"
 #include "instr.h"
 #include "core.h"
@@ -20,64 +22,22 @@ Warp::Warp(Core *core, Word id)
 }
 
 void Warp::clear() {
+  D(3, "Warp::clear called");
   PC_ = STARTUP_ADDR;
   tmask_.reset();
   active_ = false;
 }
 
-void Warp::step(Pipeline *pipeline) {
-  assert(tmask_.any());
+int Warp::getNumThreads() const {
+  return core_->arch().num_threads();
+}
+
+bool Warp::execute(Instr& instr) {
+  assert(tmask_.any() && "Warp::execute");
 
   D(3, "Step: wid=" << id_ << ", PC=0x" << std::hex << PC_);
 
-  /* Fetch and decode. */    
-
-  Word fetched = core_->icache_fetch(PC_);
-  auto instr = core_->decoder().decode(fetched);
-
-  // Update pipeline
-  pipeline->valid = true;
-  pipeline->PC = PC_;
-  pipeline->rdest = instr->getRDest();
-  pipeline->rdest_type = instr->getRDType();
-  pipeline->used_iregs.reset();
-  pipeline->used_fregs.reset();
-  pipeline->used_vregs.reset();
-
-  switch (pipeline->rdest_type) {
-  case 1:
-    pipeline->used_iregs[pipeline->rdest] = 1;
-    break;
-  case 2:
-    pipeline->used_fregs[pipeline->rdest] = 1;
-    break;
-  case 3:
-    pipeline->used_vregs[pipeline->rdest] = 1;
-    break;
-  default:
-    break;
-  }
-
-  for (int i = 0; i < instr->getNRSrc(); ++i) {
-    int type = instr->getRSType(i);
-    int reg = instr->getRSrc(i);
-    switch (type) {
-    case 1:
-      pipeline->used_iregs[reg] = 1;
-      break;
-    case 2:
-      pipeline->used_fregs[reg] = 1;
-      break;
-    case 3:
-      pipeline->used_vregs[reg] = 1;
-      break;
-    default:
-      break;
-    }
-  }
-  
-  // Execute
-  this->execute(*instr, pipeline);
+  auto result = this->executing(instr);
 
   // At Debug Level 3, print debug info after each instruction.
   D(4, "Register state:");
@@ -93,4 +53,103 @@ void Warp::step(Pipeline *pipeline) {
   for (int i = 0; i < core_->arch().num_threads(); ++i)
     DPN(3, " " << tmask_[i]);
   DPN(3, "\n");
+
+  return result;
+}
+
+bool Warp::read(Instr& instr, const RegMask& ireg_used, const RegMask& freg_used, const RegMask& vreg_used) const {
+  for (int tid = 0; tid < getNumThreads(); ++tid) {
+    // copy src registers
+    for (int i = 0; i < instr.getNRSrc(); ++i) {
+      const int rst = instr.getRSType(i);
+      const int rs = instr.getRSrc(i);
+      if (i) DPN(3, ", ");
+      switch (rst) {
+        case RegTypes::INTEGER:
+          if (ireg_used.test(rs)) {
+            return false;
+          }
+          instr.setRSData(iRegFile_.at(tid).at(rs), tid, i);
+          DPN(3, "r" << std::dec << rs << "=0x" << std::hex << iRegFile_.at(tid).at(rs));
+          break;
+        case RegTypes::FLOAT:
+          if (freg_used.test(rs)) {
+            return false;
+          }
+          instr.setRSData(fRegFile_.at(tid).at(rs), tid, i);
+          DPN(3, "fr" << std::dec << rs << "=0x" << std::hex << fRegFile_.at(tid).at(rs));
+          break;
+        default:
+          break;
+      }
+    }
+    // copy dst registers
+    const int rdt = instr.getRDType();
+    const int rd = instr.getRDest();
+    switch (rdt) {
+      case RegTypes::INTEGER:
+        if (ireg_used.test(rd)) {
+          return false;
+        }
+        instr.setRDData(iRegFile_.at(tid).at(rd), tid);
+        break;
+      case RegTypes::FLOAT:
+        if (freg_used.test(rd)) {
+          return false;
+        }
+        instr.setRDData(fRegFile_.at(tid).at(rd), tid);
+        break;
+      default:
+        break;
+    }
+  }
+  // for vector instr values
+  // copy src registers
+  for (int i = 0; i < instr.getNRSrc(); ++i) {
+    if (instr.getRSType(i) == RegTypes::VECTOR) {
+      const int rs = instr.getRSrc(i);
+      if (vreg_used.test(rs)) {
+        return false;
+      }
+      instr.setVRSData(vRegFile_.at(rs), i);
+    }
+  }
+  // copy dst registers
+  if (instr.getRDType() == RegTypes::VECTOR) {
+    const int rd = instr.getRDest();
+    if (vreg_used.test(rd)) {
+      return false;
+    }
+    instr.setVRDData(vRegFile_.at(rd));
+  }
+  return true;
+}
+
+void Warp::writeback(const Instr& instr) {
+  int rdest  = instr.getRDest();
+  int rdt = instr.getRDType();
+
+  for (int tid = 0; tid < getNumThreads(); ++tid) {
+//    if (!instr.isThreadUsed(tid)) {
+//      continue;
+//    }
+    switch (rdt) {
+      case RegTypes::INTEGER:
+        if (rdest) {
+          D(3, "[" << std::dec << tid << "] Dest Register: r" << rdest << "=0x" << std::hex << std::hex << instr.getRDData(tid));
+          iRegFile_[tid][rdest] = instr.getRDData(tid);
+        }
+        break;
+      case RegTypes::FLOAT:
+        D(3, "[" << std::dec << tid << "] Dest Register: fr" << rdest << "=0x" << std::hex << std::hex << instr.getRDData(tid));
+        fRegFile_[tid][rdest] = instr.getRDData(tid);
+        break;
+      default:
+        break;
+    }
+  }
+  // for vector instr values
+  if (instr.getRDest() == RegTypes::VECTOR) {
+    vRegFile_[rdest] = instr.getVRDData();
+  }
 }

@@ -1,6 +1,11 @@
 #pragma once
 
+#include "archdef.h"
 #include "types.h"
+#include "warp.h"
+
+#include <array>
+#include <vector>
 
 namespace vortex {
 
@@ -48,16 +53,29 @@ enum InstType {
 };
 
 class Instr {
+  enum {
+    MAX_REG_SOURCES = 3
+  };
+
 public:
-  Instr() 
+  Instr(const ArchDef& arch)
     : opcode_(Opcode::NOP)
     , num_rsrcs_(0)
     , has_imm_(false)
+    , rdest_type_(0)
     , rdest_(0)
     , func3_(0)
-    , func7_(0) {
+    , func7_(0)
+    , rsData_(arch.num_threads())
+    , rdData_(arch.num_threads(), 0)
+    , vrdData_(arch.vsize(), 0)
+  {
     for (int i = 0; i < MAX_REG_SOURCES; ++i) {
        rsrc_type_[i] = 0;
+       vrsData_[i].resize(arch.vsize(), 0);
+       for (int tid = 0; tid < arch.num_threads(); ++tid) {
+         rsData_[tid][i] = 0;
+       }
     }
   }
 
@@ -82,6 +100,23 @@ public:
   void setVediv(Word ediv) { vediv_ = 1 << ediv; }
   void setFunc6(Word func6) { func6_ = func6; }
 
+  // tid - thread id
+  void setRSData(Word data, const int tid, const int num_rs) {
+    rsData_[tid][num_rs] = data;
+  }
+  void setRDData(Word data, const int tid) {
+    rdData_[tid] = data;
+  }
+  void setVRSData(const std::vector<Byte>& data, const int num_rs) {
+    vrsData_[num_rs] = data;
+  }
+  void setVRDData(const std::vector<Byte>& data) {
+    vrdData_ = data;
+  }
+  void setThreadUsed(const int tid) {
+    threadMask_.set(tid);
+  }
+
   /* Getters used by encoders. */
   Opcode getOpcode() const { return opcode_; }
   Word getFunc3() const { return func3_; }
@@ -103,12 +138,29 @@ public:
   Word getVsew() const { return vsew_; }
   Word getVediv() const { return vediv_; }
 
+  std::array<Word, MAX_REG_SOURCES> getRSData(int tid) {
+    return rsData_[tid];
+  }
+  const std::array<std::vector<Byte>, MAX_REG_SOURCES>& getVRSData() const {
+    return vrsData_;
+  }
+  Word getRDData(int tid) const {
+    return rdData_.at(tid);
+  }
+  Word& getRDData(int tid) {
+    return rdData_[tid];
+  }
+  const std::vector<Byte>& getVRDData() const {
+    return vrdData_;
+  }
+  std::vector<Byte>& getVRDData() {
+    return vrdData_;
+  }
+  bool isThreadUsed(const int tid) const {
+    return threadMask_.test(tid);
+  }
+
 private:
-
-  enum {
-    MAX_REG_SOURCES = 3
-  };
-
   Opcode opcode_;
   int num_rsrcs_;
   bool has_imm_;
@@ -123,7 +175,7 @@ private:
   Word func3_;
   Word func7_;
 
-  //Vector
+  // Vector
   Word vmask_;
   Word vlsWidth_;
   Word vMop_;
@@ -133,6 +185,19 @@ private:
   Word vsew_;
   Word vediv_;
   Word func6_;
+
+  // Src and dst values
+  // Warp Source Registers
+  std::vector<std::array<Word, MAX_REG_SOURCES>> rsData_;
+  // Warp Destination Registers
+  std::vector<Word> rdData_;
+  // For vector instr
+  // Warp Vector Source Registers
+  std::array<std::vector<Byte>, MAX_REG_SOURCES> vrsData_;
+  // Warp Vector Destination Registers
+  std::vector<Byte> vrdData_;
+  // To check which threads values need to be saved
+  ThreadMask threadMask_;
 
   friend std::ostream &operator<<(std::ostream &, const Instr&);
 };

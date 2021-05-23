@@ -68,8 +68,10 @@ static void update_fcrs(Core* core, int tid, int wid, bool outOfRange = false) {
   }
 }
 
-void Warp::execute(const Instr &instr, Pipeline *pipeline) {
-  assert(tmask_.any());
+bool Warp::executing(Instr& instr) {
+  assert(tmask_.any() && "Warp::executing");
+
+  bool stall_warp = false;
 
   Word nextPC = PC_ + core_->arch().wsize();
   bool runOnce = false;
@@ -85,39 +87,29 @@ void Warp::execute(const Instr &instr, Pipeline *pipeline) {
   Word immsrc= instr.getImm();
   Word vmask = instr.getVmask();
 
-  int num_threads = core_->arch().num_threads();
+  // for vector instr
+  const auto& vrsdata = instr.getVRSData();
+  const auto& vr1 = vrsdata[0];
+  const auto& vr2 = vrsdata[1];
+  auto& vd = instr.getVRDData(); // mutable link
+
+  int num_threads = getNumThreads();
   for (int t = 0; t < num_threads; t++) {
     if (!tmask_.test(t) || runOnce)
       continue;
-    
-    auto &iregs = iRegFile_.at(t);
-    auto &fregs = fRegFile_.at(t);
 
-    Word rsdata[3];
-    Word rddata;
+    auto rsdata = instr.getRSData(t);
+    Word& rddata = instr.getRDData(t);
 
-    int num_rsrcs = instr.getNRSrc();
+    int num_rsrcs = instr.getNRSrc(); // register nums
     if (num_rsrcs) {    
       DPH(3, "[" << std::dec << t << "] Src Registers: ");
-      for (int i = 0; i < num_rsrcs; ++i) {    
-        int rst = instr.getRSType(i);
-        int rs = instr.getRSrc(i);        
-        if (i) DPN(3, ", ");
-        switch (rst) {
-        case 1: 
-          rsdata[i] = iregs[rs];
-          DPN(3, "r" << std::dec << rs << "=0x" << std::hex << rsdata[i]); 
-          break;
-        case 2: 
-          rsdata[i] = fregs[rs];
-          DPN(3, "fr" << std::dec << rs << "=0x" << std::hex << rsdata[i]); 
-          break;
-        default: break;
-        }
+      for (int i = 0; i < num_rsrcs; ++i) {
+        DPN(3, "r" << std::dec << instr.getRSrc(i) << "=0x" << std::hex << rsdata[i]);
       }
       DPN(3, std::endl);
     }
-  
+
     switch (opcode) {
     case NOP:
       break;
@@ -333,19 +325,19 @@ void Warp::execute(const Instr &instr, Pipeline *pipeline) {
         }
         break;
       }
-      pipeline->stall_warp = true;
+      stall_warp = true;
       runOnce = true;
       break;
     case JAL_INST:
       rddata = nextPC;
       nextPC = PC_ + immsrc;  
-      pipeline->stall_warp = true;
+      stall_warp = true;
       runOnce = true;
       break;
     case JALR_INST:
       rddata = nextPC;
       nextPC = rsdata[0] + immsrc;
-      pipeline->stall_warp = true;
+      stall_warp = true;
       runOnce = true;
       break;
     case L_INST: {
@@ -407,7 +399,7 @@ void Warp::execute(const Instr &instr, Pipeline *pipeline) {
           // ECALL/EBREAK
           tmask_.reset();
           active_ = tmask_.any();
-          pipeline->stall_warp = true; 
+          stall_warp = true;
         }
         break;
       case 1:
@@ -446,7 +438,7 @@ void Warp::execute(const Instr &instr, Pipeline *pipeline) {
     } break;
     case FENCE:
       D(3, "FENCE");
-      pipeline->stall_warp = true; 
+      stall_warp = true;
       runOnce = true;
       break;
     case (FL | VL):
@@ -823,13 +815,14 @@ void Warp::execute(const Instr &instr, Pipeline *pipeline) {
       switch (func3) {
       case 0: {
         // TMC
-        int active_threads = std::min<int>(rsdata[0], num_threads);          
+        int active_threads = std::min<int>(rsdata[0], num_threads);
+        DPN(3, "TMC, active threads: " << active_threads);
         tmask_.reset();
         for (int i = 0; i < active_threads; ++i) {
-          tmask_[i] = true;
+          setTmask(i, true);
         }
         active_ = tmask_.any();
-        pipeline->stall_warp = true;
+        stall_warp = true;
         runOnce = true;
       } break;
       case 1: {
@@ -841,7 +834,7 @@ void Warp::execute(const Instr &instr, Pipeline *pipeline) {
           newWarp.setPC(rsdata[1]);
           newWarp.setTmask(0, true);
         }
-        pipeline->stall_warp = true;
+        stall_warp = true;
         runOnce = true;
       } break;
       case 2: {
@@ -874,7 +867,7 @@ void Warp::execute(const Instr &instr, Pipeline *pipeline) {
           D(3, "Split: Pushed TM PC: " << std::hex << e.PC << std::dec << "\n");
           DX( for (int i = 0; i < num_threads; ++i) D(3, e.tmask[i] << " "); )
         }
-        pipeline->stall_warp = true;
+        stall_warp = true;
         runOnce = true;
       } break;
       case 3: {
@@ -902,14 +895,14 @@ void Warp::execute(const Instr &instr, Pipeline *pipeline) {
 
           domStack_.pop();
         }
-        pipeline->stall_warp = true;
+        stall_warp = true;
         runOnce = true;
       } break;
       case 4: {
         // BAR
         active_ = false;
         core_->barrier(rsdata[0], rsdata[1], id_);
-        pipeline->stall_warp = true; 
+        stall_warp = true;
         runOnce = true;       
       } break;
       default:
@@ -924,9 +917,7 @@ void Warp::execute(const Instr &instr, Pipeline *pipeline) {
       case 0: // vector-vector
         switch (func6) {
         case 0: {
-          auto& vr1 = vRegFile_[rsrc0];
-          auto& vr2 = vRegFile_[rsrc1];
-          auto& vd = vRegFile_[rdest];
+          // TODO: what about this?
           auto& mask = vRegFile_[0];
           if (vtype_.vsew == 8) {
             for (int i = 0; i < vl_; i++) {
@@ -968,9 +959,6 @@ void Warp::execute(const Instr &instr, Pipeline *pipeline) {
         } break;
         case 24: {
           //vmseq
-          auto &vr1 = vRegFile_[rsrc0];
-          auto &vr2 = vRegFile_[rsrc1];
-          auto &vd = vRegFile_[rdest];
           if (vtype_.vsew == 8) {
             for (int i = 0; i < vl_; i++) {
               uint8_t first  = *(uint8_t *)(vr1.data() + i);
@@ -999,9 +987,6 @@ void Warp::execute(const Instr &instr, Pipeline *pipeline) {
         } break;
         case 25: { 
           //vmsne
-          auto &vr1 = vRegFile_[rsrc0];
-          auto &vr2 = vRegFile_[rsrc1];
-          auto &vd = vRegFile_[rdest];
           if (vtype_.vsew == 8) {
             for (int i = 0; i < vl_; i++) {
               uint8_t first  = *(uint8_t *)(vr1.data() + i);
@@ -1030,9 +1015,6 @@ void Warp::execute(const Instr &instr, Pipeline *pipeline) {
         } break;
         case 26: {
           //vmsltu
-          auto &vr1 = vRegFile_[rsrc0];
-          auto &vr2 = vRegFile_[rsrc1];
-          auto &vd = vRegFile_[rdest];
           if (vtype_.vsew == 8) {
             for (int i = 0; i < vl_; i++) {
               uint8_t first  = *(uint8_t *)(vr1.data() + i);
@@ -1061,9 +1043,6 @@ void Warp::execute(const Instr &instr, Pipeline *pipeline) {
         } break;
         case 27: {
           //vmslt
-          auto &vr1 = vRegFile_[rsrc0];
-          auto &vr2 = vRegFile_[rsrc1];
-          auto &vd = vRegFile_[rdest];
           if (vtype_.vsew == 8) {
             for (int i = 0; i < vl_; i++) {
               int8_t first  = *(int8_t *)(vr1.data() + i);
@@ -1092,9 +1071,6 @@ void Warp::execute(const Instr &instr, Pipeline *pipeline) {
         } break;
         case 28: {
           //vmsleu
-          auto &vr1 = vRegFile_[rsrc0];
-          auto &vr2 = vRegFile_[rsrc1];
-          auto &vd = vRegFile_[rdest];
           if (vtype_.vsew == 8) {
             for (int i = 0; i < vl_; i++) {
               uint8_t first  = *(uint8_t *)(vr1.data() + i);
@@ -1123,9 +1099,6 @@ void Warp::execute(const Instr &instr, Pipeline *pipeline) {
         } break;
         case 29: {
           //vmsle
-          auto &vr1 = vRegFile_[rsrc0];
-          auto &vr2 = vRegFile_[rsrc1];
-          auto &vd = vRegFile_[rdest];
           if (vtype_.vsew == 8) {
             for (int i = 0; i < vl_; i++) {
               int8_t first  = *(int8_t *)(vr1.data() + i);
@@ -1154,9 +1127,6 @@ void Warp::execute(const Instr &instr, Pipeline *pipeline) {
         } break;
         case 30: {
           //vmsgtu
-          auto &vr1 = vRegFile_[rsrc0];
-          auto &vr2 = vRegFile_[rsrc1];
-          auto &vd = vRegFile_[rdest];
           if (vtype_.vsew == 8) {
             for (int i = 0; i < vl_; i++) {
               uint8_t first  = *(uint8_t *)(vr1.data() + i);
@@ -1185,9 +1155,6 @@ void Warp::execute(const Instr &instr, Pipeline *pipeline) {
         } break;
         case 31: {
           //vmsgt
-          auto &vr1 = vRegFile_[rsrc0];
-          auto &vr2 = vRegFile_[rsrc1];
-          auto &vd = vRegFile_[rdest];
           if (vtype_.vsew == 8) {
             for (int i = 0; i < vl_; i++) {
               int8_t first  = *(int8_t *)(vr1.data() + i);
@@ -1221,9 +1188,6 @@ void Warp::execute(const Instr &instr, Pipeline *pipeline) {
         case 24: { 
           // vmandnot
           D(3, "vmandnot");
-          auto &vr1 = vRegFile_[rsrc0];
-          auto &vr2 = vRegFile_[rsrc1];
-          auto &vd = vRegFile_[rdest];
           if (vtype_.vsew == 8) {
             for (int i = 0; i < vl_; i++) {
               uint8_t first  = *(uint8_t *)(vr1.data() + i);
@@ -1268,9 +1232,6 @@ void Warp::execute(const Instr &instr, Pipeline *pipeline) {
         case 25: {
           // vmand
           D(3, "vmand");
-          auto &vr1 = vRegFile_[rsrc0];
-          auto &vr2 = vRegFile_[rsrc1];
-          auto &vd = vRegFile_[rdest];
           if (vtype_.vsew == 8) {
             for (int i = 0; i < vl_; i++) {
               uint8_t first  = *(uint8_t *)(vr1.data() + i);
@@ -1315,9 +1276,6 @@ void Warp::execute(const Instr &instr, Pipeline *pipeline) {
         case 26: {
           // vmor
           D(3, "vmor");
-          auto &vr1 = vRegFile_[rsrc0];
-          auto &vr2 = vRegFile_[rsrc1];
-          auto &vd = vRegFile_[rdest];
           if (vtype_.vsew == 8) {
             for (int i = 0; i < vl_; i++) {
               uint8_t first  = *(uint8_t *)(vr1.data() + i);
@@ -1362,9 +1320,6 @@ void Warp::execute(const Instr &instr, Pipeline *pipeline) {
         case 27: { 
           //vmxor
           D(3, "vmxor");
-          auto &vr1 = vRegFile_[rsrc0];
-          auto &vr2 = vRegFile_[rsrc1];
-          auto &vd = vRegFile_[rdest];
           if (vtype_.vsew == 8) {
             for (int i = 0; i < vl_; i++) {
               uint8_t first  = *(uint8_t *)(vr1.data() + i);
@@ -1409,9 +1364,6 @@ void Warp::execute(const Instr &instr, Pipeline *pipeline) {
         case 28: {
           //vmornot
           D(3, "vmornot");
-          auto &vr1 = vRegFile_[rsrc0];
-          auto &vr2 = vRegFile_[rsrc1];
-          auto &vd = vRegFile_[rdest];
           if (vtype_.vsew == 8) {
             for (int i = 0; i < vl_; i++) {
               uint8_t first  = *(uint8_t *)(vr1.data() + i);
@@ -1456,9 +1408,6 @@ void Warp::execute(const Instr &instr, Pipeline *pipeline) {
         case 29: {
           //vmnand
           D(3, "vmnand");
-          auto &vr1 = vRegFile_[rsrc0];
-          auto &vr2 = vRegFile_[rsrc1];
-          auto &vd = vRegFile_[rdest];
           if (vtype_.vsew == 8) {
             for (int i = 0; i < vl_; i++) {
               uint8_t first  = *(uint8_t *)(vr1.data() + i);
@@ -1503,9 +1452,6 @@ void Warp::execute(const Instr &instr, Pipeline *pipeline) {
         case 30: {
           //vmnor
           D(3, "vmnor");
-          auto &vr1 = vRegFile_[rsrc0];
-          auto &vr2 = vRegFile_[rsrc1];
-          auto &vd = vRegFile_[rdest];
           if (vtype_.vsew == 8) {
             for (int i = 0; i < vl_; i++) {
               uint8_t first  = *(uint8_t *)(vr1.data() + i);
@@ -1550,9 +1496,6 @@ void Warp::execute(const Instr &instr, Pipeline *pipeline) {
         case 31: {
           //vmxnor
           D(3, "vmxnor");
-          auto &vr1 = vRegFile_[rsrc0];
-          auto &vr2 = vRegFile_[rsrc1];
-          auto &vd = vRegFile_[rdest];
           if (vtype_.vsew == 8) {
             for (int i = 0; i < vl_; i++) {
               uint8_t first  = *(uint8_t *)(vr1.data() + i);
@@ -1597,9 +1540,6 @@ void Warp::execute(const Instr &instr, Pipeline *pipeline) {
         case 37: {
           //vmul
           D(3, "vmul");
-          auto &vr1 = vRegFile_[rsrc0];
-          auto &vr2 = vRegFile_[rsrc1];
-          auto &vd = vRegFile_[rdest];
           if (vtype_.vsew == 8) {
             for (int i = 0; i < vl_; i++) {
               uint8_t first  = *(uint8_t *)(vr1.data() + i);
@@ -1638,9 +1578,6 @@ void Warp::execute(const Instr &instr, Pipeline *pipeline) {
         case 45: {
           // vmacc
           D(3, "vmacc");
-          auto &vr1 = vRegFile_[rsrc0];
-          auto &vr2 = vRegFile_[rsrc1];
-          auto &vd = vRegFile_[rdest];
           if (vtype_.vsew == 8) {
             for (int i = 0; i < vl_; i++) {
               uint8_t first  = *(uint8_t *)(vr1.data() + i);
@@ -1780,22 +1717,6 @@ void Warp::execute(const Instr &instr, Pipeline *pipeline) {
     default:
       std::abort();
     }
-
-    int rdt = instr.getRDType();
-    switch (rdt) {
-    case 1:      
-      if (rdest) {
-        D(3, "[" << std::dec << t << "] Dest Register: r" << rdest << "=0x" << std::hex << std::hex << rddata);
-        iregs[rdest] = rddata;
-      }
-      break;
-    case 2:
-      D(3, "[" << std::dec << t << "] Dest Register: fr" << rdest << "=0x" << std::hex << std::hex << rddata);
-      fregs[rdest] = rddata;
-      break;
-    default:
-      break;
-    }
   }
 
   PC_ += core_->arch().wsize();
@@ -1803,4 +1724,6 @@ void Warp::execute(const Instr &instr, Pipeline *pipeline) {
     D(3, "Next PC: " << std::hex << nextPC << std::dec);
     PC_ = nextPC;
   }
+
+  return !stall_warp;
 }
