@@ -30,7 +30,8 @@ Core::Core(const ArchDef &arch, Decoder &decoder, MemoryUnit &mem, Word id)
     , fetch_module_(*this, ports_)
     , decode_module_(*this, ports_)
     , read_module_(*this, ports_)
-    , execute_module_(*this, ports_) {
+    , execute_module_(*this, ports_)
+    , writeback_module_(*this, ports_) {
   in_use_iregs_.resize(arch.num_warps(), 0);
   in_use_fregs_.resize(arch.num_warps(), 0);
   in_use_vregs_.reset();
@@ -98,6 +99,7 @@ void Core::step() {
   decode_module_.clock_decode(steps_);
   read_module_.clock_read(steps_);
   execute_module_.clock_execute(steps_);
+  writeback_module_.clock_writeback(steps_);
 
   steps_++;
 //  if (steps_ > 15) {
@@ -392,7 +394,7 @@ bool Core::running() const {
       || decode_module_.is_active((size_t)num_steps())
       || read_module_.is_active((size_t)num_steps())
       || execute_module_.is_active((size_t)num_steps())
-      || inst_in_writeback_.valid;
+      || writeback_module_.is_active((size_t)num_steps());
 }
 
 void Core::printStats() const {

@@ -115,10 +115,27 @@ private:
   Core& core_;
   std::shared_ptr<ReadPort<std::pair<int, std::shared_ptr<Instr>>>> rp_read_2_execute_instr_;
   std::shared_ptr<WritePort<bool>> wp_execute_2_read_stall_;
+  std::shared_ptr<ReadPort<bool>> rp_writeback_2_execute_stall_;
+  std::shared_ptr<WritePort<WritebackInfo>> wp_execute_2_writeback_result_;
 
   std::shared_ptr<WritePort<int>> wp_execute_2_schedule_executed_wid_;
   std::shared_ptr<WritePort<int>> wp_execute_2_schedule_stalled_wid_;
+};
+
+
+class WritebaskModule : Module {
+public:
+  WritebaskModule(Core& core, PortsStorage& ps);
+
+  void clock_writeback(const size_t cycle);
+  bool is_active(const size_t cycle) const override;
+
+private:
+  Core& core_;
+  std::shared_ptr<ReadPort<WritebackInfo>> rp_execute_2_writeback_result_;
+  std::shared_ptr<WritePort<bool>> wp_writeback_2_execute_stall_;
   std::shared_ptr<WritePort<int>> wp_writeback_2_schedule_unstalled_wid_;
+  std::shared_ptr<WritePort<ReleasedMemRegInfo>> wp_writeback_2_read_reg_;
 };
 
 }

@@ -187,6 +187,20 @@ struct ReleasedMemRegInfo {
   int reg_type;
 };
 
+struct WritebackInfo {
+  WritebackInfo()
+  {}
+  WritebackInfo(const size_t w, const std::shared_ptr<Instr>& i, const bool sw)
+    : wid(w)
+    , instr(i)
+    , stall_warp(sw)
+  {}
+
+  int wid;
+  std::shared_ptr<Instr> instr;
+  bool stall_warp;
+};
+
 struct PortsStorage {
   // schedule -> fetch
 //  static constexpr char* WPSchedule2FetchData = "WP_SCHEDULE_2_FETCH_DATA";
@@ -226,9 +240,15 @@ struct PortsStorage {
     // writeback -> schedule
     , RPWriteback2ScheduleUnstalledWID(make_read_port<int>("RP_WRITEBACK_2_SCHEDULE_UNSTALLED_WID", TestLatency))
     , WPWriteback2ScheduleUnstalledWID(make_write_port<int>("WP_WRITEBACK_2_SCHEDULE_UNSTALLED_WID", TestLatency))
-    // writeback -> reaad
+    // writeback -> read
     , RPWriteback2ReadReg(make_read_port<ReleasedMemRegInfo>("RP_WRITEBACK_2_READ_REG", TestLatency))
     , WPWriteback2ReadReg(make_write_port<ReleasedMemRegInfo>("WP_WRITEBACK_2_READ_REG", TestLatency))
+    // writeback -> execute
+    , RPWriteback2ExecuteStall(make_read_port<bool>("RP_WRITEBACK_2_EXECUTE_STALL", StallLatency))
+    , WPWriteback2ExecuteStall(make_write_port<bool>("WP_WRITEBACK__2_EXECUTE_STALL", StallLatency))
+    // execute -> writeback
+    , RPExecute2WritebackResult(make_read_port<WritebackInfo>("RP_EXECUTE_2_WRITEBACK_REG", TestLatency))
+    , WPExecute2WritebackResult(make_write_port<WritebackInfo>("WP_EXECUTE_2_WRITEBACK_REG", TestLatency))
   {
     WPFetch2ScheduleStall_->add_reader(RPFetch2ScheduleStall_);
     WPSchedule2FetchWID_->add_reader(RPSchedule2FetchWID_);
@@ -247,6 +267,9 @@ struct PortsStorage {
     WPRead2ExecuteInstr->add_reader(RPRead2ExecuteInstr);
 
     WPWriteback2ReadReg->add_reader(RPWriteback2ReadReg);
+
+    WPWriteback2ExecuteStall->add_reader(RPWriteback2ExecuteStall);
+    WPExecute2WritebackResult->add_reader(RPExecute2WritebackResult);
   }
 
   // fetch -> schedule
@@ -294,6 +317,14 @@ struct PortsStorage {
   // writeback -> read
   std::shared_ptr<ReadPort<ReleasedMemRegInfo>> RPWriteback2ReadReg;
   std::shared_ptr<WritePort<ReleasedMemRegInfo>> WPWriteback2ReadReg;
+
+  // writeback -> execute
+  std::shared_ptr<ReadPort<bool>> RPWriteback2ExecuteStall;
+  std::shared_ptr<WritePort<bool>> WPWriteback2ExecuteStall;
+
+  // execute -> writeback
+  std::shared_ptr<ReadPort<WritebackInfo>> RPExecute2WritebackResult;
+  std::shared_ptr<WritePort<WritebackInfo>> WPExecute2WritebackResult;
 };
 
 } // namespace vortex

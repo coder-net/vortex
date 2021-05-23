@@ -122,6 +122,7 @@ public:
   DecodeModule decode_module_;
   ReadModule read_module_;
   ExecuteModule execute_module_;
+  WritebaskModule writeback_module_;
 };
 
 } // namespace vortex
