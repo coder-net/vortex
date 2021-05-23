@@ -29,7 +29,8 @@ Core::Core(const ArchDef &arch, Decoder &decoder, MemoryUnit &mem, Word id)
     , schedule_module_(*this, ports_)
     , fetch_module_(*this, ports_)
     , decode_module_(*this, ports_)
-    , read_module_(*this, ports_) {
+    , read_module_(*this, ports_)
+    , execute_module_(*this, ports_) {
   in_use_iregs_.resize(arch.num_warps(), 0);
   in_use_fregs_.resize(arch.num_warps(), 0);
   in_use_vregs_.reset();
@@ -96,6 +97,7 @@ void Core::step() {
   fetch_module_.clock_fetch(steps_);
   decode_module_.clock_decode(steps_);
   read_module_.clock_read(steps_);
+  execute_module_.clock_execute(steps_);
 
   steps_++;
 //  if (steps_ > 15) {
@@ -246,19 +248,25 @@ void Core::writeback() {
 
   warp(inst_in_writeback_.wid).writeback(&inst_in_writeback_);
 
-  switch (inst_in_writeback_.instr->getRDType()) {
-  case RegTypes::INTEGER:
-    in_use_iregs_[inst_in_writeback_.wid][inst_in_writeback_.instr->getRDest()] = 0;
-    break;
-  case RegTypes::FLOAT:
-    in_use_fregs_[inst_in_writeback_.wid][inst_in_writeback_.instr->getRDest()] = 0;
-    break;
-  case RegTypes::VECTOR:
-    in_use_vregs_[inst_in_writeback_.instr->getRDest()] = 0;
-    break;
-  default:  
-    break;
-  }
+  ports_.WPWriteback2ReadReg->write(ReleasedMemRegInfo(
+          inst_in_writeback_.wid,
+          inst_in_writeback_.instr->getRDest(),
+          inst_in_writeback_.instr->getRDType()
+          ), static_cast<size_t>(num_steps()));
+
+//  switch (inst_in_writeback_.instr->getRDType()) {
+//  case RegTypes::INTEGER:
+//    in_use_iregs_[inst_in_writeback_.wid][inst_in_writeback_.instr->getRDest()] = 0;
+//    break;
+//  case RegTypes::FLOAT:
+//    in_use_fregs_[inst_in_writeback_.wid][inst_in_writeback_.instr->getRDest()] = 0;
+//    break;
+//  case RegTypes::VECTOR:
+//    in_use_vregs_[inst_in_writeback_.instr->getRDest()] = 0;
+//    break;
+//  default:
+//    break;
+//  }
 
   if (inst_in_writeback_.stall_warp) {
     stalled_warps_[inst_in_writeback_.wid] = 0;
@@ -383,7 +391,7 @@ bool Core::running() const {
       || fetch_module_.is_active((size_t)num_steps())
       || decode_module_.is_active((size_t)num_steps())
       || read_module_.is_active((size_t)num_steps())
-      || inst_in_execute_.valid 
+      || execute_module_.is_active((size_t)num_steps())
       || inst_in_writeback_.valid;
 }
 

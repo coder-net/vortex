@@ -121,6 +121,7 @@ public:
   FetchModule fetch_module_;
   DecodeModule decode_module_;
   ReadModule read_module_;
+  ExecuteModule execute_module_;
 };
 
 } // namespace vortex

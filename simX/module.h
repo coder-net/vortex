@@ -93,6 +93,28 @@ private:
   Core& core_;
   std::shared_ptr<ReadPort<std::pair<int, std::shared_ptr<Instr>>>> rp_decode_2_read_instr_;
   std::shared_ptr<WritePort<bool>> wp_read_2_decode_stall_;
+  std::shared_ptr<ReadPort<bool>> rp_execute_2_read_stall_;
+  std::shared_ptr<WritePort<std::pair<int, std::shared_ptr<Instr>>>> wp_read_2_execute_instr_;
+  std::shared_ptr<ReadPort<ReleasedMemRegInfo>> rp_writeback_2_read_reg_;
+
+  std::vector<RegMask> in_use_iregs_;
+  std::vector<RegMask> in_use_fregs_;
+  RegMask in_use_vregs_;
+  bool stalled_;
+};
+
+
+class ExecuteModule : Module {
+public:
+  ExecuteModule(Core& core, PortsStorage& ps);
+
+  void clock_execute(const size_t cycle);
+  bool is_active(const size_t cycle) const override;
+
+private:
+  Core& core_;
+  std::shared_ptr<ReadPort<std::pair<int, std::shared_ptr<Instr>>>> rp_read_2_execute_instr_;
+  std::shared_ptr<WritePort<bool>> wp_execute_2_read_stall_;
 
   std::shared_ptr<WritePort<int>> wp_execute_2_schedule_executed_wid_;
   std::shared_ptr<WritePort<int>> wp_execute_2_schedule_stalled_wid_;
